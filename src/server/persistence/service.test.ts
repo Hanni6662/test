@@ -71,6 +71,22 @@ describe("PromptBuilderService persistence", () => {
     ).toThrowError(new ServiceError("BUILTIN_IMMUTABLE", 409, "Builtin modules cannot be modified"));
   });
 
+  it("includes one custom direction per declared category in compile output", () => {
+    const project = service.createProject({ name: "Custom directions" });
+    service.upsertProductProfile(project.id, { facts });
+    const design = service.createDesign(project.id, {
+      name: "Hero",
+      selectedModuleIds: ["purpose_amazon_listing"],
+      parameters: {},
+      custom: { scene: "Keep generous white space around the garment." },
+    });
+
+    const result = service.compile(design.id);
+
+    expect(result.sections.find(({ title }) => title === "Scene")?.content)
+      .toContain("Keep generous white space around the garment.");
+  });
+
   it("keeps AI candidates evidenced and compiles only manually confirmed facts", () => {
     const project = service.createProject({ name: "Candidate review" });
     service.upsertProductProfile(project.id, { facts });

@@ -1,0 +1,103 @@
+export interface CompileLike {
+  sections: Array<{ title: string; content: string }>;
+  errors: Array<{ code: string; message: string; moduleIds: string[] }>;
+  warnings: Array<{ code: string; message: string; moduleIds: string[] }>;
+}
+
+export interface SectionDiff {
+  title: string;
+  before: string;
+  after: string;
+  status: "added" | "removed" | "changed";
+}
+
+export function diffVersions(before: Pick<CompileLike, "sections">, after: Pick<CompileLike, "sections">): SectionDiff[] {
+  const left = new Map(before.sections.map((section) => [section.title, section.content]));
+  const right = new Map(after.sections.map((section) => [section.title, section.content]));
+  const titles = [...new Set([...left.keys(), ...right.keys()])];
+  return titles.flatMap((title) => {
+    const previous = left.get(title) ?? "";
+    const next = right.get(title) ?? "";
+    if (previous === next) return [];
+    return [{ title, before: previous, after: next, status: !left.has(title) ? "added" as const : !right.has(title) ? "removed" as const : "changed" as const }];
+  });
+}
+
+const sectionNames: Record<string, string> = {
+  "Product Facts (Immutable)": "产品事实（已锁定）",
+  "Purpose & Subject": "用途与主体",
+  "Composition & Camera": "构图与镜头",
+  Scene: "场景",
+  "Style, Color & Lighting": "风格、色彩与灯光",
+  Text: "文字",
+  "Output Specification": "输出规格",
+  "Negative Constraints": "负向约束",
+};
+const issueNames: Record<string, string> = {
+  BACK_VIEW_EVIDENCE_REQUIRED: "缺少背面图证据",
+  UNKNOWN_MODULE_ID: "存在未知模块",
+  WHITE_BACKGROUND_WITH_SCENE: "纯白背景与环境场景冲突",
+  NO_TEXT_WITH_TITLE: "无文字与标题设置冲突",
+};
+
+export function describeCompile(compile: CompileLike): string {
+  const sections = compile.sections.map(({ title, content }) => `${sectionNames[title] ?? title}：${content.replace(/^[-\s]+/, "")}`);
+  const errors = compile.errors.map((item) => `必须修正：${issueNames[item.code] ?? item.message}`);
+  const warnings = compile.warnings.map((item) => `建议检查：${issueNames[item.code] ?? item.message}`);
+  return [...sections, ...errors, ...warnings].join("\n\n");
+}
+
+export function createDebouncer<T>(callback: (value: T) => void, delay: number) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return {
+    schedule(value: T) {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => { timer = undefined; callback(value); }, delay);
+    },
+    cancel() { if (timer) clearTimeout(timer); timer = undefined; },
+  };
+}
+
+export const imageClassificationOptions = ["main", "front", "back", "side", "detail", "variant", "unknown"] as const;
+
+export function canExportCompile(compile: { errors: unknown[]; warnings: unknown[] } | null): boolean {
+  return compile !== null && compile.errors.length === 0;
+}
+
+function sensitiveKey(key: string): boolean {
+  const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return normalized.includes("authorization") || normalized.includes("authheader")
+    || normalized.includes("apikey") || normalized.includes("privatekey")
+    || normalized.includes("bearercredential") || normalized.includes("cookiejar")
+    || normalized.includes("password") || normalized.includes("secret")
+    || normalized.includes("sessionid") || normalized.endsWith("token") || normalized.endsWith("cookie");
+}
+
+export function shouldAcceptCompile(responseRevision: number, currentRevision: number): boolean {
+  return responseRevision === currentRevision;
+}
+
+function cleanValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(cleanValue);
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).filter(([key]) => !sensitiveKey(key)).map(([key, nested]) => [key, cleanValue(nested)]));
+  return value;
+}
+
+export function safeDraftExport(input: {
+  selectedModuleIds: string[];
+  parameters: Record<string, unknown>;
+  custom: Record<string, unknown>;
+  allowedParameterKeys: string[];
+  compile: unknown;
+}) {
+  const allowed = new Set(input.allowedParameterKeys);
+  const categories = new Set<string>(moduleCategories);
+  return {
+    formatVersion: 1,
+    selectedModuleIds: [...input.selectedModuleIds],
+    parameters: Object.fromEntries(Object.entries(input.parameters).filter(([key]) => allowed.has(key) && !sensitiveKey(key)).map(([key, value]) => [key, cleanValue(value)])),
+    custom: Object.fromEntries(Object.entries(input.custom).filter(([key, value]) => categories.has(key) && typeof value === "string")),
+    compile: input.compile,
+  };
+}
+import { moduleCategories } from "@/domain/types";

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import BetterSqlite3 from "better-sqlite3";
@@ -12,6 +12,7 @@ describe("API error boundary", () => {
     directory = mkdtempSync(join(tmpdir(), "prompt-api-"));
     databasePath = join(directory, "app.db");
     process.env.PROMPT_BUILDER_DB_PATH = databasePath;
+    process.env.PROMPT_BUILDER_UPLOAD_ROOT = join(directory, "uploads");
     vi.resetModules();
   });
 
@@ -19,7 +20,26 @@ describe("API error boundary", () => {
     const { closeRuntimeService } = await import("@/server/persistence/runtime");
     closeRuntimeService();
     delete process.env.PROMPT_BUILDER_DB_PATH;
+    delete process.env.PROMPT_BUILDER_UPLOAD_ROOT;
     rmSync(directory, { recursive: true, force: true });
+  });
+
+  it("serves an upload-backed image inline for workspace thumbnails", async () => {
+    const { getPromptBuilderService } = await import("@/server/persistence/runtime");
+    const service = getPromptBuilderService();
+    const project = service.createProject({ name: "Thumbnail" });
+    const relative = `${project.id}/thumb.png`;
+    mkdirSync(join(directory, "uploads", project.id), { recursive: true });
+    writeFileSync(join(directory, "uploads", relative), Buffer.from([137, 80, 78, 71]));
+    const [image] = service.addReferenceImages(project.id, [{ storagePath: relative, originalFilename: "thumb.png", mimeType: "image/png", size: 4 }]);
+    const { GET } = await import("./images/[id]/route");
+
+    const response = await GET(new Request(`http://localhost/api/images/${image.id}`), { params: Promise.resolve({ id: image.id }) });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/png");
+    expect(response.headers.get("content-disposition")).toContain("inline");
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(Buffer.from([137, 80, 78, 71]));
   });
 
   it("returns structured 400 JSON for invalid request input without a stack", async () => {

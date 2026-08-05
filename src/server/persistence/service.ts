@@ -589,10 +589,18 @@ export class PromptBuilderService {
     profile: ProductProfile,
     modules: ModuleVersionSnapshot[],
   ): CompileResult {
+    const customModules = Object.entries(safeCustomDirections(design.custom)).map(([category, content]) => ({
+      id: `custom_${category}_direction`,
+      label: `Custom ${category} direction`,
+      category: category as ModuleCategory,
+      content: content!,
+      capabilities: [],
+      exportableParameterKeys: [],
+    }));
     return compileResultSchema.parse(compilePrompt({
       facts: profile.facts,
       selectedModuleIds: design.selectedModuleIds,
-      customModules: [],
+      customModules,
     }, modules.map((module) => module.definition)));
   }
 
