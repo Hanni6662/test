@@ -177,7 +177,10 @@ describe("image and AI workflow routes", () => {
     const [version] = service.listVersions(design.id);
     expect(version.compileSnapshot.prompt).toBe(deterministic);
     expect(version.polishedPrompt).toBe(polished);
+    expect(version.polishedBasePromptHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(version.polishedPromptValid).toBe(true);
     expect(version.designSnapshot.polishedPrompt).toBe(polished);
+    expect(version.designSnapshot.polishedBasePromptHash).toBe(version.polishedBasePromptHash);
     expect(version.designSnapshot.custom).toEqual({});
   });
 });

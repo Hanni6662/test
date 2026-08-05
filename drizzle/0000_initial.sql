@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS image_designs (
   parameters_json TEXT NOT NULL,
   custom_json TEXT NOT NULL,
   polished_prompt TEXT,
+  polished_base_prompt_hash TEXT,
   revision INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -62,6 +63,7 @@ CREATE TABLE IF NOT EXISTS prompt_versions (
   design_snapshot_json TEXT NOT NULL,
   compile_snapshot_json TEXT NOT NULL,
   polished_prompt TEXT,
+  polished_base_prompt_hash TEXT,
   compiler_version TEXT NOT NULL,
   created_at TEXT NOT NULL,
   UNIQUE(design_id, version_number)

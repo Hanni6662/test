@@ -188,9 +188,16 @@ export function copyTextForLanguage(
 
 export function preferredVersionPrompt(version: {
   polishedPrompt: string | null;
+  polishedPromptValid: boolean;
   compileSnapshot: { prompt: string };
 }): string {
-  return version.polishedPrompt ?? version.compileSnapshot.prompt;
+  return version.polishedPromptValid && version.polishedPrompt
+    ? version.polishedPrompt
+    : version.compileSnapshot.prompt;
+}
+
+export function versionExportPath(versionId: string): string {
+  return `/api/versions/${encodeURIComponent(versionId)}/export`;
 }
 
 export function updateModuleEnglishContent<T extends { content: string; contentZh: string }>(

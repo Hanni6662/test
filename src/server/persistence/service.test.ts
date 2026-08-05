@@ -51,7 +51,29 @@ describe("PromptBuilderService persistence", () => {
     inspected.close();
 
     expect(imageColumns).toContain("polished_prompt");
+    expect(imageColumns).toContain("polished_base_prompt_hash");
     expect(versionColumns).toContain("polished_prompt");
+    expect(versionColumns).toContain("polished_base_prompt_hash");
+  });
+
+  it("exposes an explicit empty polish binding on new drafts and deterministic versions", () => {
+    const project = service.createProject({ name: "Empty polish binding" });
+    service.upsertProductProfile(project.id, { facts });
+    const design = service.createDesign(project.id, {
+      name: "Empty binding design",
+      selectedModuleIds: ["purpose_amazon_listing"],
+    });
+    const version = service.saveVersion(design.id, design.revision);
+
+    expect(service.getDesign(design.id)).toMatchObject({
+      polishedPrompt: null,
+      polishedBasePromptHash: null,
+    });
+    expect(version).toMatchObject({
+      polishedPrompt: null,
+      polishedBasePromptHash: null,
+      polishedPromptValid: false,
+    });
   });
 
   it("persists project renames, duplicates, product profiles, and design autosaves", () => {
@@ -398,10 +420,38 @@ describe("PromptBuilderService persistence", () => {
     const restored = service.restoreVersion(design.id, source.id);
 
     expect(restored.polishedPrompt).toBe(polished);
+    expect(restored.polishedBasePromptHash).toBe(source.polishedBasePromptHash);
+    expect(restored.polishedPromptValid).toBe(true);
     expect(restored.designSnapshot.polishedPrompt).toBe(polished);
+    expect(restored.designSnapshot.polishedBasePromptHash).toBe(source.polishedBasePromptHash);
     expect(service.getDesign(design.id).polishedPrompt).toBe(polished);
     expect(restored.compileSnapshot.prompt).toBe(source.compileSnapshot.prompt);
     expect(restored.compileSnapshot.compiledChinese).toBe(source.compileSnapshot.compiledChinese);
+  });
+
+  it("does not restore a polish whose source version hash is invalid", () => {
+    const project = service.createProject({ name: "Invalid source hash" });
+    service.upsertProductProfile(project.id, { facts });
+    const design = service.createDesign(project.id, { name: "Invalid source hash", selectedModuleIds: ["purpose_amazon_listing"] });
+    const compiled = service.compileEnvelope(design.id);
+    const source = service.savePolishedVersion(
+      design.id,
+      `${compiled.compile.prompt}\nAccepted source.`,
+      compiled.revision,
+      compiled.compile.prompt,
+    ).version;
+    const injector = new BetterSqlite3(databasePath);
+    injector.prepare("UPDATE prompt_versions SET polished_base_prompt_hash = ? WHERE id = ?").run("0".repeat(64), source.id);
+    injector.close();
+
+    const restored = service.restoreVersion(design.id, source.id);
+
+    expect(restored).toMatchObject({
+      polishedPrompt: null,
+      polishedBasePromptHash: null,
+      polishedPromptValid: false,
+      designSnapshot: { polishedPrompt: null, polishedBasePromptHash: null },
+    });
   });
 
   it("rejects restoring a legacy version that contains hard errors", () => {
@@ -467,8 +517,11 @@ describe("PromptBuilderService persistence", () => {
 
     const saved = service.savePolishedVersion(design.id, polished, deterministic.revision, deterministic.compile.prompt);
     expect(saved.design.polishedPrompt).toBe(polished);
+    expect(saved.design.polishedBasePromptHash).toMatch(/^[a-f0-9]{64}$/);
     expect(saved.design.custom).toEqual({});
     expect(saved.version.polishedPrompt).toBe(polished);
+    expect(saved.version.polishedBasePromptHash).toBe(saved.design.polishedBasePromptHash);
+    expect(saved.version.polishedPromptValid).toBe(true);
     expect(saved.version.compileSnapshot.prompt).toBe(deterministic.compile.prompt);
 
     const identical = service.autosaveDesign(design.id, {
@@ -477,9 +530,11 @@ describe("PromptBuilderService persistence", () => {
       custom: saved.design.custom,
     }, saved.revision);
     expect(identical.polishedPrompt).toBe(polished);
+    expect(identical.polishedBasePromptHash).toBe(saved.design.polishedBasePromptHash);
 
     const changed = service.autosaveDesign(design.id, { parameters: { width: 1600 } }, identical.revision);
     expect(changed.polishedPrompt).toBeNull();
+    expect(changed.polishedBasePromptHash).toBeNull();
   });
 
   it("clears accepted polish when product facts or a selected custom module changes", () => {
@@ -506,7 +561,7 @@ describe("PromptBuilderService persistence", () => {
     );
 
     service.upsertProductProfile(project.id, { facts: { ...facts, title: "Changed title" } });
-    expect(service.getDesign(design.id).polishedPrompt).toBeNull();
+    expect(service.getDesign(design.id)).toMatchObject({ polishedPrompt: null, polishedBasePromptHash: null });
 
     const secondCompile = service.compileEnvelope(design.id);
     service.savePolishedVersion(
@@ -516,7 +571,40 @@ describe("PromptBuilderService persistence", () => {
       secondCompile.compile.prompt,
     );
     service.updateCustomModule(customModule.id, { content: "Use crisp studio light." });
-    expect(service.getDesign(design.id).polishedPrompt).toBeNull();
+    expect(service.getDesign(design.id)).toMatchObject({ polishedPrompt: null, polishedBasePromptHash: null });
+  });
+
+  it("self-heals a stale polish binding when a selected module changes outside normal mutations", () => {
+    const project = service.createProject({ name: "Self-healing polish" });
+    service.upsertProductProfile(project.id, { facts });
+    const design = service.createDesign(project.id, {
+      name: "Self-healing polish",
+      selectedModuleIds: ["purpose_amazon_listing"],
+    });
+    const compiled = service.compileEnvelope(design.id);
+    const accepted = service.savePolishedVersion(
+      design.id,
+      `${compiled.compile.prompt}\nAccepted polish.`,
+      compiled.revision,
+      compiled.compile.prompt,
+    );
+    const injector = new BetterSqlite3(databasePath);
+    const row = injector.prepare("SELECT definition_json FROM prompt_modules WHERE id = ?")
+      .get("purpose_amazon_listing") as { definition_json: string };
+    const definition = JSON.parse(row.definition_json);
+    definition.content = "Compiler-upgraded marketplace instruction.";
+    injector.prepare("UPDATE prompt_modules SET definition_json = ?, version = version + 1 WHERE id = ?")
+      .run(JSON.stringify(definition), "purpose_amazon_listing");
+    injector.close();
+
+    const staleVersion = service.saveVersion(design.id, accepted.revision);
+
+    expect(service.getDesign(design.id)).toMatchObject({ polishedPrompt: null, polishedBasePromptHash: null });
+    expect(staleVersion).toMatchObject({
+      polishedPrompt: null,
+      polishedBasePromptHash: null,
+      polishedPromptValid: false,
+    });
   });
 
   it("does not restore polish when current product or module dependencies changed", () => {
@@ -757,6 +845,8 @@ describe("PromptBuilderService persistence", () => {
       },
       compilerVersion: "1.0.0",
       polishedPrompt: polished,
+      polishedBasePromptHash: version.polishedBasePromptHash,
+      polishedPromptValid: true,
     });
     expect(exported.compile).toEqual(version.compileSnapshot);
     expect(exported.compile.compiledChinese).toContain("产品事实");
@@ -785,5 +875,22 @@ describe("PromptBuilderService persistence", () => {
     expect(json).not.toContain("must be removed");
     expect(json).toContain("tokenCount");
     expect(json).not.toContain("imageData");
+  });
+
+  it("does not export a legacy polish without a verifiable base hash", () => {
+    const project = service.createProject({ name: "Legacy polish export" });
+    service.upsertProductProfile(project.id, { facts });
+    const design = service.createDesign(project.id, { name: "Legacy polish export", selectedModuleIds: [] });
+    const version = service.saveVersion(design.id, design.revision);
+    const injector = new BetterSqlite3(databasePath);
+    injector.prepare("UPDATE prompt_versions SET polished_prompt = ?, polished_base_prompt_hash = NULL WHERE id = ?")
+      .run("unverifiable legacy polish", version.id);
+    injector.close();
+
+    const historical = service.listVersions(design.id)[0]!;
+    const exported = service.exportVersion(version.id);
+
+    expect(historical).toMatchObject({ polishedPrompt: "unverifiable legacy polish", polishedBasePromptHash: null, polishedPromptValid: false });
+    expect(exported).toMatchObject({ polishedPrompt: null, polishedBasePromptHash: null, polishedPromptValid: false });
   });
 });

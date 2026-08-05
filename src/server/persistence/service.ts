@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import BetterSqlite3 from "better-sqlite3";
@@ -30,6 +30,9 @@ import { imageClassificationSchema, productFactCandidateSchema, type ImageClassi
 
 export const COMPILER_VERSION = "1.0.0";
 const BUILTIN_MODULE_VERSION = 2;
+
+const hashPolishedBasePrompt = (prompt: string, compilerVersion = COMPILER_VERSION): string =>
+  createHash("sha256").update(`${compilerVersion}\0${prompt}`, "utf8").digest("hex");
 
 const nameSchema = z.string().trim().min(1).max(200);
 const referenceImageSchema = z.object({
@@ -97,6 +100,7 @@ const designSnapshotSchema = designCreateSchema.extend({
   id: z.string(),
   projectId: z.string(),
   polishedPrompt: z.string().nullable().default(null),
+  polishedBasePromptHash: z.string().nullable().default(null),
   revision: z.number().int().nonnegative().default(0),
 });
 
@@ -136,6 +140,8 @@ export interface PromptVersion {
   designSnapshot: DesignSnapshot;
   compileSnapshot: CompileResult;
   polishedPrompt: string | null;
+  polishedBasePromptHash: string | null;
+  polishedPromptValid: boolean;
   compilerVersion: string;
   createdAt: string;
 }
@@ -149,6 +155,8 @@ export interface VersionExport {
   custom: Partial<Record<ModuleCategory, string>>;
   compile: CompileResult;
   polishedPrompt: string | null;
+  polishedBasePromptHash: string | null;
+  polishedPromptValid: boolean;
   errors: CompileResult["errors"];
   warnings: CompileResult["warnings"];
   timestamp: string;
@@ -271,6 +279,8 @@ export class PromptBuilderService {
     if (!columns("image_designs").has("revision")) this.sqlite.exec("ALTER TABLE image_designs ADD COLUMN revision INTEGER NOT NULL DEFAULT 0");
     if (!columns("image_designs").has("polished_prompt")) this.sqlite.exec("ALTER TABLE image_designs ADD COLUMN polished_prompt TEXT");
     if (!columns("prompt_versions").has("polished_prompt")) this.sqlite.exec("ALTER TABLE prompt_versions ADD COLUMN polished_prompt TEXT");
+    if (!columns("image_designs").has("polished_base_prompt_hash")) this.sqlite.exec("ALTER TABLE image_designs ADD COLUMN polished_base_prompt_hash TEXT");
+    if (!columns("prompt_versions").has("polished_base_prompt_hash")) this.sqlite.exec("ALTER TABLE prompt_versions ADD COLUMN polished_base_prompt_hash TEXT");
   }
 
   close(): void {
@@ -282,7 +292,7 @@ export class PromptBuilderService {
   }
 
   private clearProjectPolish(projectId: string): void {
-    this.db.update(imageDesigns).set({ polishedPrompt: null })
+    this.db.update(imageDesigns).set({ polishedPrompt: null, polishedBasePromptHash: null })
       .where(eq(imageDesigns.projectId, projectId)).run();
   }
 
@@ -291,7 +301,7 @@ export class PromptBuilderService {
       .from(imageDesigns).all()
       .filter(({ selectedModuleIdsJson }) => parseJson(selectedModuleIdsJson, selectedModuleIdsSchema).includes(moduleId));
     for (const { id } of affected) {
-      this.db.update(imageDesigns).set({ polishedPrompt: null }).where(eq(imageDesigns.id, id)).run();
+      this.db.update(imageDesigns).set({ polishedPrompt: null, polishedBasePromptHash: null }).where(eq(imageDesigns.id, id)).run();
     }
   }
 
@@ -610,6 +620,7 @@ export class PromptBuilderService {
       parametersJson: JSON.stringify(parsed.parameters),
       customJson: JSON.stringify(parsed.custom),
       polishedPrompt: null,
+      polishedBasePromptHash: null,
       revision: 0,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -628,6 +639,7 @@ export class PromptBuilderService {
       parameters: JSON.parse(row.parametersJson),
       custom: JSON.parse(row.customJson),
       polishedPrompt: row.polishedPrompt,
+      polishedBasePromptHash: row.polishedBasePromptHash,
       revision: row.revision,
     });
   }
@@ -650,6 +662,7 @@ export class PromptBuilderService {
       parametersJson: JSON.stringify(parsed.parameters ?? current.parameters),
       customJson: JSON.stringify(parsed.custom ?? current.custom),
       polishedPrompt: contentChanged ? null : current.polishedPrompt,
+      polishedBasePromptHash: contentChanged ? null : current.polishedBasePromptHash,
       revision: expectedRevision + 1,
       updatedAt: now(),
     }).where(and(eq(imageDesigns.id, id), eq(imageDesigns.revision, expectedRevision))).run();
@@ -709,7 +722,7 @@ export class PromptBuilderService {
   saveVersion(designId: string, expectedRevision: number): PromptVersion {
     const parsedRevision = z.number().int().nonnegative().parse(expectedRevision);
     return this.atomic(() => {
-      const design = this.getDesign(designId);
+      let design = this.getDesign(designId);
       if (design.revision !== parsedRevision) throw new ServiceError("STALE_REVISION", 409, "Design revision is stale");
       const product = this.getProductProfile(design.projectId);
       const selected = new Set(design.selectedModuleIds);
@@ -718,6 +731,13 @@ export class PromptBuilderService {
         .map(({ kind, version, definition }) => ({ kind, version, definition }));
       const compileSnapshot = this.compileSnapshots(design, product, modules);
       if (compileSnapshot.errors.length) throw new ServiceError("HARD_CONSTRAINTS", 422, "Design has hard constraint errors");
+      const currentBaseHash = hashPolishedBasePrompt(compileSnapshot.prompt);
+      const polishValid = design.polishedPrompt !== null && design.polishedBasePromptHash === currentBaseHash;
+      if (!polishValid && (design.polishedPrompt !== null || design.polishedBasePromptHash !== null)) {
+        this.db.update(imageDesigns).set({ polishedPrompt: null, polishedBasePromptHash: null })
+          .where(and(eq(imageDesigns.id, designId), eq(imageDesigns.revision, parsedRevision))).run();
+        design = this.getDesign(designId);
+      }
       const latest = this.db.select().from(promptVersions).where(eq(promptVersions.designId, designId))
         .orderBy(desc(promptVersions.versionNumber)).get();
       return this.insertVersion({
@@ -727,12 +747,13 @@ export class PromptBuilderService {
         moduleSnapshot: modules,
         designSnapshot: design,
         compileSnapshot,
-        polishedPrompt: design.polishedPrompt,
+        polishedPrompt: polishValid ? design.polishedPrompt : null,
+        polishedBasePromptHash: polishValid ? currentBaseHash : null,
       });
     });
   }
 
-  private insertVersion(input: Omit<PromptVersion, "id" | "compilerVersion" | "createdAt" | "polishedPrompt"> & { polishedPrompt?: string | null }): PromptVersion {
+  private insertVersion(input: Omit<PromptVersion, "id" | "compilerVersion" | "createdAt" | "polishedPrompt" | "polishedBasePromptHash" | "polishedPromptValid"> & { polishedPrompt?: string | null; polishedBasePromptHash?: string | null }): PromptVersion {
     if (input.compileSnapshot.errors.length) throw new ServiceError("HARD_CONSTRAINTS", 422, "Design has hard constraint errors");
     const id = randomUUID();
     const createdAt = now();
@@ -745,6 +766,7 @@ export class PromptBuilderService {
       designSnapshotJson: JSON.stringify(designSnapshotSchema.parse(input.designSnapshot)),
       compileSnapshotJson: JSON.stringify(compileResultSchema.parse(input.compileSnapshot)),
       polishedPrompt: input.polishedPrompt ?? null,
+      polishedBasePromptHash: input.polishedBasePromptHash ?? null,
       compilerVersion: COMPILER_VERSION,
       createdAt,
     }).run();
@@ -774,6 +796,9 @@ export class PromptBuilderService {
       designSnapshot,
       compileSnapshot,
       polishedPrompt: row.polishedPrompt,
+      polishedBasePromptHash: row.polishedBasePromptHash,
+      polishedPromptValid: row.polishedPrompt !== null
+        && row.polishedBasePromptHash === hashPolishedBasePrompt(compileSnapshot.prompt, row.compilerVersion),
       compilerVersion: row.compilerVersion,
       createdAt: row.createdAt,
     };
@@ -806,8 +831,12 @@ export class PromptBuilderService {
         .filter((module) => selected.has(module.definition.id))
         .map(({ kind, version, definition }) => ({ kind, version, definition }));
       const livePrompt = this.compileSnapshots(restoredBase, liveProduct, liveModules).prompt;
-      const restoredPolish = livePrompt === source.compileSnapshot.prompt ? source.polishedPrompt : null;
-      this.db.update(imageDesigns).set({ polishedPrompt: restoredPolish })
+      const liveBaseHash = hashPolishedBasePrompt(livePrompt);
+      const restoreBindingValid = source.polishedPromptValid
+        && source.polishedBasePromptHash === liveBaseHash;
+      const restoredPolish = restoreBindingValid ? source.polishedPrompt : null;
+      const restoredBasePromptHash = restoreBindingValid ? source.polishedBasePromptHash : null;
+      this.db.update(imageDesigns).set({ polishedPrompt: restoredPolish, polishedBasePromptHash: restoredBasePromptHash })
         .where(and(eq(imageDesigns.id, designId), eq(imageDesigns.revision, restoredBase.revision))).run();
       const restoredDesign = this.getDesign(designId);
       const latest = this.listVersions(designId)[0];
@@ -819,6 +848,7 @@ export class PromptBuilderService {
         designSnapshot: restoredDesign,
         compileSnapshot: source.compileSnapshot,
         polishedPrompt: restoredPolish,
+        polishedBasePromptHash: restoredBasePromptHash,
       });
     });
   }
@@ -835,8 +865,10 @@ export class PromptBuilderService {
       if (current.revision !== expectedRevision || this.compileSnapshots(current, product, modules).prompt !== basePrompt) {
         throw new ServiceError("STALE_REVISION", 409, "Design or compile context changed during AI polish");
       }
+      const basePromptHash = hashPolishedBasePrompt(basePrompt);
       const updated = this.db.update(imageDesigns).set({
         polishedPrompt: parsedPolishedPrompt,
+        polishedBasePromptHash: basePromptHash,
         revision: expectedRevision + 1,
         updatedAt: now(),
       }).where(and(eq(imageDesigns.id, designId), eq(imageDesigns.revision, expectedRevision))).run();
@@ -853,6 +885,7 @@ export class PromptBuilderService {
         designSnapshot: design,
         compileSnapshot: compile,
         polishedPrompt: parsedPolishedPrompt,
+        polishedBasePromptHash: basePromptHash,
       });
       return { designId, revision: design.revision, design, compile, version };
     });
@@ -902,7 +935,9 @@ export class PromptBuilderService {
       ),
       custom: safeCustomDirections(version.designSnapshot.custom),
       compile,
-      polishedPrompt: z.string().nullable().parse(version.polishedPrompt),
+      polishedPrompt: version.polishedPromptValid ? z.string().nullable().parse(version.polishedPrompt) : null,
+      polishedBasePromptHash: version.polishedPromptValid ? z.string().nullable().parse(version.polishedBasePromptHash) : null,
+      polishedPromptValid: version.polishedPromptValid,
       errors: compile.errors,
       warnings: compile.warnings,
       timestamp: version.createdAt,

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { moduleCategories, type ModuleCategory, type ProductFacts, type PromptModuleDefinition } from "@/domain/types";
 import { apiClient, ApiError } from "@/client/api-client";
-import { canExportCompile, copyTextForLanguage, createDebouncer, createOperationController, createSerialExecutor, declaredParameterKeys, diffVersions, formatParameterValue, imageClassificationOptions, isCompileContextCurrent, parseExportableParameterKeys, parseParameterValue, reconcileDeclaredParameters, safeDraftExport, updateCustomDirection, updateModuleEnglishContent, type OperationController, type OperationToken } from "@/client/workbench";
+import { canExportCompile, copyTextForLanguage, createDebouncer, createOperationController, createSerialExecutor, declaredParameterKeys, diffVersions, formatParameterValue, imageClassificationOptions, isCompileContextCurrent, parseExportableParameterKeys, parseParameterValue, reconcileDeclaredParameters, safeDraftExport, updateCustomDirection, updateModuleEnglishContent, versionExportPath, type OperationController, type OperationToken } from "@/client/workbench";
 import { createLatestPendingQueue, RetryLatestSave } from "@/client/autosave-queue";
 import { categoryNames, emptyFacts, type AiSettings, type Candidate, type CompileEnvelope, type CompileState, type Design, type ProductProfile, type Project, type ReferenceImage, type StoredModule, type Version, type View } from "@/client/models";
 import { ModalPanel } from "./modal-panel";
@@ -16,15 +16,8 @@ const classes = imageClassificationOptions;
 const classNames: Record<string, string> = { main: "主图", front: "正面", back: "背面", side: "侧面", detail: "细节", variant: "变体", unknown: "未知" };
 const fmt = (value: string) => new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 const err = (value: unknown) => value instanceof ApiError ? `${value.message}${value.issues.length ? `：${value.issues.map((i) => i.message).join("；")}` : ""}` : value instanceof Error ? value.message : "未知错误";
-async function download(name: string, value: unknown) {
-  try {
-    const safe = value && typeof value === "object" && "productSnapshot" in value && "id" in value
-      ? await apiClient.get(`/api/versions/${String((value as { id: unknown }).id)}/export`)
-      : value;
-    startJsonDownload(name, safe);
-  } catch (error) {
-    window.alert(`导出失败：${err(error)}`);
-  }
+function download(name: string, value: unknown) {
+  startJsonDownload(name, value);
 }
 
 export default function WorkbenchApp() {
@@ -163,19 +156,21 @@ function History({ design, setDesign, versions, setVersions, operations, runTran
   const mountedRef = useRef(true); useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
   const activeId = selected || versions[0]?.id || ""; const current = versions.find((v) => v.id === activeId); const one = versions.find((v) => v.id === left); const two = versions.find((v) => v.id === right); const diffs = one && two ? diffVersions(one.compileSnapshot, two.compileSnapshot) : [];
   const copyVersion = async (text: string, label: string) => { await navigator.clipboard.writeText(text); if (mountedRef.current) setNotice(`${label}已复制`); };
+  const exportCurrent = async () => { if (!current) return; try { const safe = await apiClient.get(versionExportPath(current.id)); if (mountedRef.current) startJsonDownload(`version-${current.versionNumber}.json`, safe); } catch (e) { if (mountedRef.current) setError(err(e)); } };
   const restore = async () => { if (!activeId) return; await runTransition(async () => { const token = operations.capture(design.id); try { const v = await apiClient.post<Version>(`/api/designs/${design.id}/versions/${activeId}/restore`); if (!mountedRef.current || !operations.isCurrent(token)) return; setDesign(v.designSnapshot); const nextVersions = await apiClient.get<Version[]>(`/api/designs/${design.id}/versions`); if (!mountedRef.current || !operations.isCurrent(token)) return; setVersions(nextVersions); setSelected(v.id); setNotice(`已恢复并生成版本 ${v.versionNumber}`); } catch (e) { if (mountedRef.current && operations.isCurrent(token)) setError(err(e)); } }); };
   return <section className="page-wrap">
     <Heading eyebrow="不可变记录" title="历史版本" text="查看确定性中英文快照与可选润色稿；恢复始终产生新版本。" action={current && <div className="toolbar-actions">
-      <button onClick={() => download(`version-${current.versionNumber}.json`, current)}>导出当前版本</button>
-      {current.polishedPrompt && <button onClick={() => void copyVersion(current.polishedPrompt!, "润色稿")}>复制润色稿</button>}
+      <button onClick={() => void exportCurrent()}>导出当前版本</button>
+      {current.polishedPromptValid && current.polishedPrompt && <button onClick={() => void copyVersion(current.polishedPrompt!, "润色稿")}>复制润色稿</button>}
       <button onClick={() => void copyVersion(current.compileSnapshot.prompt, "确定性英文")}>复制确定性英文</button>
       <button onClick={() => void copyVersion(current.compileSnapshot.compiledChinese, "确定性中文")}>复制确定性中文</button>
       <button className="primary" onClick={() => void restore()}>恢复为新版本</button>
     </div>} />
     {!versions.length ? <div className="empty"><h2>尚无版本</h2><p>请在搭建页保存第一个版本。</p></div> : <div className="history-layout">
-      <aside className="version-list">{versions.map((v) => <button key={v.id} className={activeId === v.id ? "active" : ""} onClick={() => setSelected(v.id)}><b>版本 {v.versionNumber}</b><span>{fmt(v.createdAt)}</span><small>{v.polishedPrompt ? "含 AI 润色稿" : "确定性编译"} · Compiler {v.compilerVersion}</small></button>)}</aside>
+      <aside className="version-list">{versions.map((v) => <button key={v.id} className={activeId === v.id ? "active" : ""} onClick={() => setSelected(v.id)}><b>版本 {v.versionNumber}</b><span>{fmt(v.createdAt)}</span><small>{v.polishedPromptValid ? "含有效 AI 润色稿" : v.polishedPrompt ? "润色稿不可验证" : "确定性编译"} · Compiler {v.compilerVersion}</small></button>)}</aside>
       <div className="version-detail">{current && <><div className="snapshot-head"><h2>版本 {current.versionNumber} 快照</h2><span>{current.compileSnapshot.errors.length} 个硬错误 · {current.compileSnapshot.warnings.length} 个提示</span></div>
-        {current.polishedPrompt && <section className="snapshot-section"><h3>AI 润色稿</h3><pre>{current.polishedPrompt}</pre></section>}
+        {current.polishedPromptValid && current.polishedPrompt && <section className="snapshot-section"><h3>AI 润色稿</h3><pre>{current.polishedPrompt}</pre></section>}
+        {!current.polishedPromptValid && current.polishedPrompt && <section className="snapshot-section"><h3>润色稿不可验证</h3><p>此历史润色稿缺少有效的确定性提示词绑定，不能展示、复制或导出为有效润色稿。</p></section>}
         {current.compileSnapshot.sections.map((s) => <section className="snapshot-section" key={s.title}><h3>{s.titleZh} / {s.title}</h3><pre>{s.contentZh}</pre><pre>{s.content}</pre></section>)}
       </>}</div>
     </div>}

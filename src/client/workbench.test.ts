@@ -35,15 +35,18 @@ const copyTextForLanguage = (compile: { prompt: string; compiledChinese: string 
     copyTextForLanguage(compile: { prompt: string; compiledChinese: string }, language: "en" | "zh"): string;
   }).copyTextForLanguage(compile, language);
 
-const preferredVersionPrompt = (version: { polishedPrompt: string | null; compileSnapshot: { prompt: string } }) =>
+const preferredVersionPrompt = (version: { polishedPrompt: string | null; polishedPromptValid: boolean; compileSnapshot: { prompt: string } }) =>
   (workbenchModule as unknown as {
-    preferredVersionPrompt(version: { polishedPrompt: string | null; compileSnapshot: { prompt: string } }): string;
+    preferredVersionPrompt(version: { polishedPrompt: string | null; polishedPromptValid: boolean; compileSnapshot: { prompt: string } }): string;
   }).preferredVersionPrompt(version);
 
 const updateModuleEnglishContent = (module: { content: string; contentZh: string }, content: string) =>
   (workbenchModule as unknown as {
     updateModuleEnglishContent<T extends { content: string; contentZh: string }>(module: T, content: string): T;
   }).updateModuleEnglishContent(module, content);
+
+const versionExportPath = (versionId: string) =>
+  (workbenchModule as unknown as { versionExportPath(versionId: string): string }).versionExportPath(versionId);
 
 describe("workbench helpers", () => {
   afterEach(() => vi.useRealTimers());
@@ -95,8 +98,13 @@ describe("workbench helpers", () => {
     const compile = { prompt: "deterministic English", compiledChinese: "确定性中文正文" };
     expect(copyTextForLanguage(compile, "zh")).toBe("确定性中文正文");
     expect(copyTextForLanguage(compile, "en")).toBe("deterministic English");
-    expect(preferredVersionPrompt({ polishedPrompt: "polished", compileSnapshot: compile })).toBe("polished");
-    expect(preferredVersionPrompt({ polishedPrompt: null, compileSnapshot: compile })).toBe("deterministic English");
+    expect(preferredVersionPrompt({ polishedPrompt: "polished", polishedPromptValid: true, compileSnapshot: compile })).toBe("polished");
+    expect(preferredVersionPrompt({ polishedPrompt: "legacy", polishedPromptValid: false, compileSnapshot: compile })).toBe("deterministic English");
+    expect(preferredVersionPrompt({ polishedPrompt: null, polishedPromptValid: false, compileSnapshot: compile })).toBe("deterministic English");
+  });
+
+  it("routes history downloads through the safe version export boundary", () => {
+    expect(versionExportPath("version id/with spaces")).toBe("/api/versions/version%20id%2Fwith%20spaces/export");
   });
 
   it("keeps a generated Chinese marker in sync until the user writes Chinese semantics", () => {
