@@ -389,12 +389,29 @@ export class PromptBuilderService {
   }
 
   setAiClassifications(projectId: string, values: Array<{ imageId: string; classification: ImageClassification; confidence: number }>): PersistedReferenceImage[] {
-    const allowed = new Set(this.listReferenceImages(projectId).map(({ id }) => id));
-    for (const value of values) {
-      if (!allowed.has(value.imageId)) throw new ServiceError("IMAGE_NOT_FOUND", 404, "Image not found for project");
-      this.db.update(referenceImages).set({ aiClassification: imageClassificationSchema.parse(value.classification), confidence: Math.round(z.number().min(0).max(1).parse(value.confidence) * 1_000_000), status: "classified" }).where(eq(referenceImages.id, value.imageId)).run();
-    }
-    return this.listReferenceImages(projectId);
+    return this.atomic(() => {
+      const images = this.listReferenceImages(projectId);
+      const allowed = new Set(images.map(({ id }) => id));
+      const received = new Set(values.map(({ imageId }) => imageId));
+      if (values.length !== images.length || received.size !== values.length || [...received].some((id) => !allowed.has(id))) {
+        throw new ServiceError("CLASSIFICATION_SET_INVALID", 400, "Classifications must include every project image exactly once");
+      }
+      const parsed = values.map((value) => ({
+        ...value,
+        classification: imageClassificationSchema.parse(value.classification),
+        confidence: z.number().min(0).max(1).parse(value.confidence),
+      }));
+      const byId = new Map(images.map((image) => [image.id, image]));
+      for (const value of parsed) {
+        const current = byId.get(value.imageId)!;
+        this.db.update(referenceImages).set({
+          aiClassification: value.classification,
+          confidence: Math.round(value.confidence * 1_000_000),
+          status: current.userClassification || current.status === "reviewed" ? "reviewed" : "classified",
+        }).where(eq(referenceImages.id, value.imageId)).run();
+      }
+      return this.listReferenceImages(projectId);
+    });
   }
 
   replaceAiCandidates(projectId: string, candidates: ProductFactCandidate[]): AiCandidate[] {

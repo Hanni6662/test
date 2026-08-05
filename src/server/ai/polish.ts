@@ -1,31 +1,62 @@
+import { SECTION_TITLES } from "@/domain/prompt-compiler";
 import type { CompileResult } from "@/domain/types";
 import { ServiceError } from "@/server/persistence/service";
 
-function protectedLines(prompt: string): string[] {
-  const lines = prompt.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  const factsStart = lines.indexOf("## Product Facts (Immutable)");
-  const factsEnd = lines.findIndex((line, index) => index > factsStart && line.startsWith("## "));
-  const factLines = factsStart >= 0 ? lines.slice(factsStart, factsEnd < 0 ? lines.length : factsEnd) : [];
-  const hardSections = ["## Negative Constraints", "## Output Specification"];
-  const constraintLines = lines.filter((line, index) => hardSections.some((heading) => {
-    const start = lines.indexOf(heading);
-    if (start < 0 || index < start) return false;
-    const next = lines.findIndex((candidate, candidateIndex) => candidateIndex > start && candidate.startsWith("## "));
-    return next < 0 || index < next;
-  }));
-  return [...new Set([...factLines, ...constraintLines])];
+const SAFE_INSERTION_ALLOWLIST = new Set(["a", "an", "that", "the", "which"]);
+const PROTECTED_SECTION_INDEXES = [0, 6, 7] as const;
+
+function fail(): never {
+  throw new ServiceError("AI_POLISH_UNSAFE", 422, "Polished prompt must preserve the fixed structure, facts, vocabulary, and hard constraints");
+}
+
+function normalizeWhitespace(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function parseFixedSections(prompt: string): string[] {
+  const lines = prompt.split(/\r?\n/);
+  const sections: string[] = [];
+  let current = -1;
+  for (const line of lines) {
+    if (line.trimStart().startsWith("## ")) {
+      current += 1;
+      if (current >= SECTION_TITLES.length || line.trim() !== `## ${SECTION_TITLES[current]}`) fail();
+      sections.push("");
+    } else {
+      if (current < 0 && line.trim()) fail();
+      if (current >= 0) sections[current] += `${line}\n`;
+    }
+  }
+  if (sections.length !== SECTION_TITLES.length) fail();
+  return sections.map((section) => section.trim());
+}
+
+function tokens(value: string): string[] {
+  return [...value.toLowerCase().matchAll(/[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu)].map(([token]) => token);
 }
 
 export function validatePolishedPrompt(original: string | CompileResult, polished: string): string {
   const source = typeof original === "string" ? original : original.prompt;
-  const missing = protectedLines(source).filter((line) => !polished.includes(line));
-  const factKeys = ["Title", "Category", "Audience", "Material", "Colors", "Verified features", "Back-view evidence"];
-  const sourceFacts = new Map(source.split(/\r?\n/).filter((line) => factKeys.some((key) => line.startsWith(`${key}:`))).map((line) => [line.slice(0, line.indexOf(":")), line]));
-  const contradictoryFact = polished.split(/\r?\n/).some((line) => {
-    const separator = line.indexOf(":"); if (separator < 0) return false;
-    const expected = sourceFacts.get(line.slice(0, separator)); return expected !== undefined && line !== expected;
-  });
-  const overrideInstruction = /\b(ignore|override|disregard|contradict|replace|change)\b.{0,80}\b(facts?|constraints?|negative|immutable|requirements?)\b/i.test(polished);
-  if (missing.length || contradictoryFact || overrideInstruction) throw new ServiceError("AI_POLISH_UNSAFE", 422, "Polished prompt must preserve product facts and hard constraints without contradictions");
+  const sourceSections = parseFixedSections(source);
+  const polishedSections = parseFixedSections(polished);
+  for (const index of PROTECTED_SECTION_INDEXES) {
+    if (normalizeWhitespace(sourceSections[index]) !== normalizeWhitespace(polishedSections[index])) fail();
+  }
+
+  const sourceVocabulary = new Set(tokens(source));
+  const polishedVocabulary = new Set(tokens(polished));
+  if ([...polishedVocabulary].some((token) => !sourceVocabulary.has(token) && !SAFE_INSERTION_ALLOWLIST.has(token))) fail();
+
+  if ([...sourceVocabulary].some((token) => !polishedVocabulary.has(token))) fail();
+  for (let index = 1; index <= 5; index += 1) {
+    const sourceContent = tokens(sourceSections[index]);
+    const polishedContent = tokens(polishedSections[index]);
+    let sourcePosition = 0;
+    for (const token of polishedContent) {
+      if (token === sourceContent[sourcePosition]) sourcePosition += 1;
+      else if (!SAFE_INSERTION_ALLOWLIST.has(token)) fail();
+    }
+    if (sourcePosition !== sourceContent.length) fail();
+  }
   return polished;
 }

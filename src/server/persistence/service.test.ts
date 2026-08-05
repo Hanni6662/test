@@ -96,6 +96,37 @@ describe("PromptBuilderService persistence", () => {
     expect(service.listReferenceImages(project.id)[0]).toMatchObject({ aiClassification: "front", userClassification: "detail", effectiveClassification: "detail" });
   });
 
+  it("applies complete AI classification sets atomically without downgrading reviewed images", () => {
+    const project = service.createProject({ name: "Atomic classifications" });
+    const [first, second] = service.addReferenceImages(project.id, [
+      { storagePath: `${project.id}/one.png`, originalFilename: "one.png", mimeType: "image/png", size: 8 },
+      { storagePath: `${project.id}/two.png`, originalFilename: "two.png", mimeType: "image/png", size: 8 },
+    ]);
+    service.setAiClassifications(project.id, [
+      { imageId: first.id, classification: "main", confidence: 0.7 },
+      { imageId: second.id, classification: "side", confidence: 0.6 },
+    ]);
+    service.updateReferenceImage(first.id, { userClassification: "detail" });
+
+    expect(() => service.setAiClassifications(project.id, [
+      { imageId: first.id, classification: "back", confidence: 0.9 },
+      { imageId: "00000000-0000-4000-8000-000000000000", classification: "front", confidence: 0.9 },
+    ])).toThrowError(new ServiceError("CLASSIFICATION_SET_INVALID", 400, "Classifications must include every project image exactly once"));
+    expect(service.listReferenceImages(project.id).map(({ aiClassification }) => aiClassification)).toEqual(["main", "side"]);
+    expect(() => service.setAiClassifications(project.id, [{ imageId: first.id, classification: "front", confidence: 0.8 }]))
+      .toThrowError(new ServiceError("CLASSIFICATION_SET_INVALID", 400, "Classifications must include every project image exactly once"));
+    expect(() => service.setAiClassifications(project.id, [
+      { imageId: first.id, classification: "front", confidence: 0.8 },
+      { imageId: first.id, classification: "front", confidence: 0.8 },
+    ])).toThrowError(new ServiceError("CLASSIFICATION_SET_INVALID", 400, "Classifications must include every project image exactly once"));
+
+    service.setAiClassifications(project.id, [
+      { imageId: first.id, classification: "back", confidence: 0.9 },
+      { imageId: second.id, classification: "front", confidence: 0.9 },
+    ]);
+    expect(service.getReferenceImage(first.id)).toMatchObject({ aiClassification: "back", userClassification: "detail", effectiveClassification: "detail", status: "reviewed" });
+  });
+
   it("does not copy source-project upload paths or AI evidence when duplicating a project", () => {
     const source = service.createProject({ name: "Source uploads" });
     service.upsertProductProfile(source.id, { facts, referenceImages: [] });
