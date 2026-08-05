@@ -55,6 +55,7 @@ const productProfileSchema = z.object({
 });
 export const productProfileWriteSchema = z.object({ facts: productFactsSchema }).strict();
 const jsonObjectSchema = z.record(z.string(), z.json());
+const customDirectionsSchema = jsonObjectSchema.transform(safeCustomDirections);
 const selectedModuleIdsSchema = z.array(moduleIdSchema).max(200).refine(
   (ids) => new Set(ids).size === ids.length,
   "Selected module IDs must be unique",
@@ -63,13 +64,13 @@ export const designCreateSchema = z.object({
   name: nameSchema,
   selectedModuleIds: selectedModuleIdsSchema.default([]),
   parameters: jsonObjectSchema.default({}),
-  custom: jsonObjectSchema.default({}),
+  custom: customDirectionsSchema.default({}),
 });
 export const designPatchSchema = z.object({
   name: nameSchema.optional(),
   selectedModuleIds: selectedModuleIdsSchema.optional(),
   parameters: jsonObjectSchema.optional(),
-  custom: jsonObjectSchema.optional(),
+  custom: customDirectionsSchema.optional(),
 });
 export const designSaveAndCompileSchema = designPatchSchema.extend({
   expectedRevision: z.number().int().nonnegative(),
@@ -207,7 +208,11 @@ function safeCustomDirections(
 ): Partial<Record<ModuleCategory, string>> {
   const categories = new Set<string>(moduleCategories);
   return Object.fromEntries(
-    Object.entries(value).filter(([key, direction]) => categories.has(key) && typeof direction === "string"),
+    Object.entries(value).flatMap(([key, direction]) => {
+      if (!categories.has(key) || typeof direction !== "string") return [];
+      const normalized = direction.normalize("NFKC").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
+      return normalized ? [[key, normalized]] : [];
+    }),
   );
 }
 
@@ -629,7 +634,7 @@ export class PromptBuilderService {
       id: `custom_${category}_direction`,
       label: `Custom ${category} direction`,
       category: category as ModuleCategory,
-      content: content!,
+      content: `Custom direction (preserve source meaning): ${content!}`,
       contentZh: `自定义方向：${content!}`,
       capabilities: [],
       exportableParameterKeys: [],

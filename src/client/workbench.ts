@@ -167,6 +167,18 @@ export function formatParameterValue(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value);
 }
 
+export function updateCustomDirection(
+  current: Record<string, unknown>,
+  category: string,
+  value: string,
+): Record<string, unknown> {
+  const next = { ...current };
+  const normalized = value.normalize("NFKC").trim();
+  if (normalized) next[category] = normalized;
+  else delete next[category];
+  return next;
+}
+
 export function parseExportableParameterKeys(raw: string): { keys: string[]; error: string } {
   const keys = raw.split(/[,，\s]+/).map((key) => key.trim()).filter(Boolean);
   if (keys.length > 50) return { keys, error: "导出参数键最多可配置 50 个" };

@@ -136,6 +136,7 @@ describe("API error boundary", () => {
           label: "Database error",
           category: "lighting",
           content: "This insert is deliberately interrupted.",
+          contentZh: "此插入会被故意中断。",
           capabilities: [],
         },
       }),
@@ -217,5 +218,25 @@ describe("API error boundary", () => {
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({ error: { code: "STALE_REVISION", message: "Design revision is stale" } });
     expect(service.listVersions(design.id)).toHaveLength(0);
+  });
+
+  it("accepts clearing a custom direction through autosave and compile", async () => {
+    const { getPromptBuilderService } = await import("@/server/persistence/runtime");
+    const service = getPromptBuilderService();
+    const project = service.createProject({ name: "Clear custom API" });
+    service.upsertProductProfile(project.id, { facts: {
+      title: "Blue dress", category: "Dresses", audience: "Children", material: "Cotton",
+      colors: ["blue"], features: [], backViewEvidence: false,
+    } });
+    const design = service.createDesign(project.id, { name: "Hero", custom: { scene: "Garden" } });
+    const { PATCH } = await import("./designs/[id]/route");
+    const response = await PATCH(new Request(`http://localhost/api/designs/${design.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ expectedRevision: design.revision, custom: { scene: "   " } }),
+    }), { params: Promise.resolve({ id: design.id }) });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ design: { custom: {} }, compile: { errors: [] } });
   });
 });

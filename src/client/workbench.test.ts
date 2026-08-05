@@ -25,6 +25,11 @@ const createSerialExecutor = () => (workbenchModule as unknown as {
   createSerialExecutor(): <T>(operation: () => Promise<T>) => Promise<T>;
 }).createSerialExecutor();
 
+const updateCustomDirection = (current: Record<string, unknown>, category: string, value: string) =>
+  (workbenchModule as unknown as {
+    updateCustomDirection(current: Record<string, unknown>, category: string, value: string): Record<string, unknown>;
+  }).updateCustomDirection(current, category, value);
+
 describe("workbench helpers", () => {
   afterEach(() => vi.useRealTimers());
 
@@ -64,6 +69,11 @@ describe("workbench helpers", () => {
     debounced.cancel();
     vi.advanceTimersByTime(300);
     expect(calls).toEqual(["latest"]);
+  });
+
+  it("deletes a custom category when its value becomes blank", () => {
+    expect(updateCustomDirection({ scene: "old", lighting: "soft" }, "scene", "   ")).toEqual({ lighting: "soft" });
+    expect(updateCustomDirection({}, "scene", "  夏日花园  ")).toEqual({ scene: "夏日花园" });
   });
 
   it("flushes the latest debounced value before navigation", () => {

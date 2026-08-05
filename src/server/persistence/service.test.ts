@@ -149,6 +149,24 @@ describe("PromptBuilderService persistence", () => {
       .toContain("Keep generous white space around the garment.");
   });
 
+  it("trims custom directions and removes a previously populated blank direction", () => {
+    const project = service.createProject({ name: "Custom normalization" });
+    service.upsertProductProfile(project.id, { facts });
+    const design = service.createDesign(project.id, {
+      name: "Hero",
+      custom: { scene: "  Keep generous white space.  ", lighting: "   " },
+    });
+    expect(design.custom).toEqual({ scene: "Keep generous white space." });
+
+    const saved = service.saveAndCompile(design.id, {
+      expectedRevision: design.revision,
+      custom: { scene: "   " },
+    });
+    expect(saved.design.custom).toEqual({});
+    expect(saved.compile.prompt).not.toContain("Keep generous white space.");
+    expect(saved.compile.errors).toEqual([]);
+  });
+
   it("keeps AI candidates evidenced and compiles only manually confirmed facts", () => {
     const project = service.createProject({ name: "Candidate review" });
     service.upsertProductProfile(project.id, { facts });
