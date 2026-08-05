@@ -54,8 +54,8 @@ test("no-AI project workflow reaches save, export, diff and restore", async ({ p
   await expect(page.getByText("缺少背面图证据", { exact: true })).toBeVisible();
   await page.getByRole("checkbox", { name: "Back view" }).uncheck();
   await page.getByPlaceholder("搜索模块").fill("");
-  await page.getByRole("checkbox", { name: /^Amazon listing Amazon/ }).check();
-  await page.getByRole("checkbox", { name: /^Amazon listing specification Amazon/ }).check();
+  await page.getByRole("checkbox", { name: /^Amazon listing 制作/ }).check();
+  await page.getByRole("checkbox", { name: /^Amazon listing specification 输出/ }).check();
   await expect(page.getByLabel("参数 width")).toBeVisible();
   await expect(page.getByLabel("参数 metadata")).toBeVisible();
   await expect(page.getByLabel("参数 height")).toHaveCount(0);
@@ -64,6 +64,12 @@ test("no-AI project workflow reaches save, export, diff and restore", async ({ p
   await page.getByRole("checkbox", { name: "Pure white background" }).check();
   await page.getByLabel("场景自定义方向").fill("保持画面留白，商品居中");
   await expect(page.getByText("草稿已自动保存")).toBeVisible();
+  const chineseResult = page.locator(".result-block").filter({ has: page.getByRole("heading", { name: "中文说明" }) });
+  await expect(chineseResult).toContainText("保持画面留白,商品居中");
+  await page.getByLabel("场景自定义方向").fill("   ");
+  await expect(page.getByRole("button", { name: "复制英文" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "复制英文" })).toBeEnabled();
+  await expect(chineseResult).not.toContainText("保持画面留白,商品居中");
   await page.getByRole("button", { name: "复制英文" }).click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("Amazon listing");
   const downloadPromise = page.waitForEvent("download");
