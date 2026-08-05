@@ -12,12 +12,28 @@ export const referenceImages = sqliteTable("reference_images", {
   projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
   identifier: text("identifier").notNull(),
   filename: text("filename").notNull(),
+  storagePath: text("storage_path"),
+  mimeType: text("mime_type"),
+  size: integer("size"),
+  aiClassification: text("ai_classification"),
+  userClassification: text("user_classification"),
+  confidence: integer("confidence"),
+  status: text("status").notNull().default("uploaded"),
   createdAt: text("created_at").notNull(),
 });
 
 export const productProfiles = sqliteTable("product_profiles", {
   projectId: text("project_id").primaryKey().references(() => projects.id, { onDelete: "cascade" }),
   factsJson: text("facts_json").notNull(),
+  aiCandidatesJson: text("ai_candidates_json").notNull().default("[]"),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const aiSettings = sqliteTable("ai_settings", {
+  id: integer("id").primaryKey(),
+  baseUrl: text("base_url").notNull(),
+  visionModel: text("vision_model").notNull(),
+  textModel: text("text_model").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
 

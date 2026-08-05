@@ -10,11 +10,26 @@ CREATE TABLE IF NOT EXISTS reference_images (
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   identifier TEXT NOT NULL,
   filename TEXT NOT NULL,
+  storage_path TEXT,
+  mime_type TEXT,
+  size INTEGER,
+  ai_classification TEXT,
+  user_classification TEXT,
+  confidence INTEGER,
+  status TEXT NOT NULL DEFAULT 'uploaded',
   created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS product_profiles (
   project_id TEXT PRIMARY KEY NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   facts_json TEXT NOT NULL,
+  ai_candidates_json TEXT NOT NULL DEFAULT '[]',
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS ai_settings (
+  id INTEGER PRIMARY KEY NOT NULL CHECK(id = 1),
+  base_url TEXT NOT NULL,
+  vision_model TEXT NOT NULL,
+  text_model TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS prompt_modules (
@@ -51,4 +66,3 @@ CREATE TABLE IF NOT EXISTS prompt_versions (
 CREATE INDEX IF NOT EXISTS reference_images_project_idx ON reference_images(project_id);
 CREATE INDEX IF NOT EXISTS image_designs_project_idx ON image_designs(project_id);
 CREATE INDEX IF NOT EXISTS prompt_versions_design_idx ON prompt_versions(design_id);
-

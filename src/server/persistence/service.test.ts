@@ -71,6 +71,57 @@ describe("PromptBuilderService persistence", () => {
     ).toThrowError(new ServiceError("BUILTIN_IMMUTABLE", 409, "Builtin modules cannot be modified"));
   });
 
+  it("keeps AI candidates evidenced and compiles only manually confirmed facts", () => {
+    const project = service.createProject({ name: "Candidate review" });
+    service.upsertProductProfile(project.id, { facts, referenceImages: [] });
+    const [image] = service.addReferenceImages(project.id, [{ storagePath: `${project.id}/front.png`, originalFilename: "front.png", mimeType: "image/png", size: 99 }]);
+    const candidates = service.replaceAiCandidates(project.id, [{ field: "material", value: "linen", confidence: 0.83, evidenceImageIds: [image.id] }]);
+    expect(service.getProductProfile(project.id).facts.material).toBe("100% cotton");
+    expect(candidates[0].evidenceImageIds).toEqual([image.id]);
+
+    service.confirmProductCandidates(project.id, { candidateIds: [candidates[0].id], edits: { material: "linen blend" } });
+    const profile = service.getProductProfile(project.id);
+    expect(profile.confirmedFacts!.material).toBe("linen blend");
+    expect(profile.facts.material).toBe("linen blend");
+    expect(profile.aiCandidates).toEqual([]);
+    expect(() => service.confirmProductCandidates(project.id, { candidateIds: ["00000000-0000-4000-8000-000000000000"] }))
+      .toThrowError(new ServiceError("CANDIDATE_NOT_FOUND", 400, "Candidate not found for project"));
+  });
+
+  it("uses user classification in preference to AI classification", () => {
+    const project = service.createProject({ name: "Classification" });
+    const [image] = service.addReferenceImages(project.id, [{ storagePath: `${project.id}/x.png`, originalFilename: "x.png", mimeType: "image/png", size: 8 }]);
+    service.setAiClassifications(project.id, [{ imageId: image.id, classification: "front", confidence: 0.9 }]);
+    service.updateReferenceImage(image.id, { userClassification: "detail" });
+    expect(service.listReferenceImages(project.id)[0]).toMatchObject({ aiClassification: "front", userClassification: "detail", effectiveClassification: "detail" });
+  });
+
+  it("does not copy source-project upload paths or AI evidence when duplicating a project", () => {
+    const source = service.createProject({ name: "Source uploads" });
+    service.upsertProductProfile(source.id, { facts, referenceImages: [] });
+    const [image] = service.addReferenceImages(source.id, [{ storagePath: `${source.id}/front.png`, originalFilename: "front.png", mimeType: "image/png", size: 8 }]);
+    service.replaceAiCandidates(source.id, [{ field: "material", value: "linen", confidence: 0.8, evidenceImageIds: [image.id] }]);
+    const duplicate = service.duplicateProject(source.id);
+    expect(service.getProductProfile(duplicate.id).referenceImages).toEqual([]);
+    expect(service.getProductProfile(duplicate.id).aiCandidates).toEqual([]);
+  });
+
+  it("does not erase uploaded images or pending AI candidates when confirmed facts are edited", () => {
+    const project = service.createProject({ name: "Edit facts" });
+    service.upsertProductProfile(project.id, { facts, referenceImages: [] });
+    const [image] = service.addReferenceImages(project.id, [{ storagePath: `${project.id}/front.png`, originalFilename: "front.png", mimeType: "image/png", size: 8 }]);
+    service.replaceAiCandidates(project.id, [{ field: "material", value: "linen", confidence: 0.8, evidenceImageIds: [image.id] }]);
+    service.upsertProductProfile(project.id, { facts: { ...facts, title: "Edited title" }, referenceImages: [] });
+    expect(service.getProductProfile(project.id).referenceImages.map(({ id }) => id)).toEqual([image.id]);
+    expect(service.getProductProfile(project.id).aiCandidates).toHaveLength(1);
+  });
+
+  it("stores non-secret AI settings and reports only environment-key configuration", () => {
+    service.updateAiSettings({ baseUrl: "https://ai.example/v1", visionModel: "vision", textModel: "text" });
+    expect(service.getAiSettings(true)).toEqual({ baseUrl: "https://ai.example/v1", visionModel: "vision", textModel: "text", configured: true });
+    expect(JSON.stringify(service.getAiSettings(true))).not.toContain("key");
+  });
+
   it("refreshes persisted builtin definitions when their export contract version changes", () => {
     const staleDefinition = {
       id: "output_amazon_listing",

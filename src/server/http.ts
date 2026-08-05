@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { ServiceError } from "./persistence/service";
+import { UploadError } from "./uploads";
+import { AiGatewayError } from "./ai/openai-compatible";
 
 class RequestValidationError extends Error {
   constructor(public readonly issues: z.core.$ZodIssue[]) {
@@ -33,7 +35,7 @@ export async function api<T>(operation: () => T | Promise<T>, status = 200): Pro
         error: { code: "INVALID_JSON", message: "Request body must be valid JSON" },
       }, { status: 400 });
     }
-    if (error instanceof ServiceError) {
+    if (error instanceof ServiceError || error instanceof UploadError || error instanceof AiGatewayError) {
       return NextResponse.json({
         error: { code: error.code, message: error.message },
       }, { status: error.status });

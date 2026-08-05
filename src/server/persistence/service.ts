@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import BetterSqlite3 from "better-sqlite3";
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { z } from "zod";
 import { compilePrompt } from "@/domain/prompt-compiler";
@@ -18,6 +18,7 @@ import {
   type PromptModuleDefinition,
 } from "@/domain/types";
 import {
+  aiSettings,
   imageDesigns,
   productProfiles,
   projects,
@@ -25,18 +26,31 @@ import {
   promptVersions,
   referenceImages,
 } from "./schema";
+import { imageClassificationSchema, productFactCandidateSchema, type ImageClassification, type ProductFactCandidate } from "@/server/ai/openai-compatible";
 
 export const COMPILER_VERSION = "1.0.0";
 const BUILTIN_MODULE_VERSION = 2;
 
 const nameSchema = z.string().trim().min(1).max(200);
 const referenceImageSchema = z.object({
+  id: z.string().optional(),
   identifier: z.string().trim().min(1).max(500),
   filename: z.string().trim().min(1).max(255),
+  storagePath: z.string().optional(),
+  mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(),
+  size: z.number().int().nonnegative().optional(),
+  aiClassification: imageClassificationSchema.nullable().optional(),
+  userClassification: imageClassificationSchema.nullable().optional(),
+  confidence: z.number().min(0).max(1).nullable().optional(),
+  status: z.enum(["uploaded", "classified", "reviewed"]).optional(),
+  effectiveClassification: imageClassificationSchema.optional(),
 });
+const aiCandidateSchema = z.intersection(z.object({ id: z.string() }), productFactCandidateSchema);
 const productProfileInputSchema = z.object({
   facts: productFactsSchema,
   referenceImages: z.array(referenceImageSchema).max(50),
+  confirmedFacts: productFactsSchema.optional(),
+  aiCandidates: z.array(aiCandidateSchema).optional(),
 });
 const jsonObjectSchema = z.record(z.string(), z.json());
 const selectedModuleIdsSchema = z.array(moduleIdSchema).max(200).refine(
@@ -76,6 +90,8 @@ const designSnapshotSchema = designCreateSchema.extend({ id: z.string(), project
 
 export type ReferenceImage = z.infer<typeof referenceImageSchema>;
 export type ProductProfile = z.infer<typeof productProfileInputSchema>;
+export type PersistedReferenceImage = Required<Pick<ReferenceImage, "id" | "identifier" | "filename" | "storagePath" | "mimeType" | "size" | "status" | "effectiveClassification">> & ReferenceImage & { projectId: string };
+export type AiCandidate = z.infer<typeof aiCandidateSchema>;
 export type DesignSnapshot = z.infer<typeof designSnapshotSchema>;
 export type StoredModule = z.infer<typeof storedModuleSchema> & { id: string; enabled: boolean };
 export type ModuleVersionSnapshot = z.infer<typeof storedModuleSchema>;
@@ -187,8 +203,21 @@ export class PromptBuilderService {
     this.sqlite.pragma("foreign_keys = ON");
     this.sqlite.pragma("busy_timeout = 5000");
     this.sqlite.exec(readFileSync(join(process.cwd(), "drizzle", "0000_initial.sql"), "utf8"));
+    this.ensureSchemaCompatibility();
     this.db = drizzle(this.sqlite);
     this.seedModules();
+  }
+
+  private ensureSchemaCompatibility(): void {
+    const columns = (table: string) => new Set((this.sqlite.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(({ name }) => name));
+    const imageColumns = columns("reference_images");
+    const additions = [
+      ["storage_path", "TEXT"], ["mime_type", "TEXT"], ["size", "INTEGER"],
+      ["ai_classification", "TEXT"], ["user_classification", "TEXT"], ["confidence", "INTEGER"],
+      ["status", "TEXT NOT NULL DEFAULT 'uploaded'"],
+    ];
+    for (const [name, definition] of additions) if (!imageColumns.has(name)) this.sqlite.exec(`ALTER TABLE reference_images ADD COLUMN ${name} ${definition}`);
+    if (!columns("product_profiles").has("ai_candidates_json")) this.sqlite.exec("ALTER TABLE product_profiles ADD COLUMN ai_candidates_json TEXT NOT NULL DEFAULT '[]'");
   }
 
   close(): void {
@@ -253,7 +282,12 @@ export class PromptBuilderService {
       const duplicate = this.createProject({ name: input?.name ?? `${source.name} copy` });
       const profile = this.db.select().from(productProfiles).where(eq(productProfiles.projectId, id)).get();
       if (profile) {
-        this.upsertProductProfile(duplicate.id, this.getProductProfile(id));
+        const sourceProfile = this.getProductProfile(id);
+        this.upsertProductProfile(duplicate.id, {
+          facts: sourceProfile.facts,
+          referenceImages: sourceProfile.referenceImages.filter((image) => image.size === 0)
+            .map((image) => ({ identifier: image.identifier, filename: image.filename })),
+        });
       }
       const designs = this.db.select().from(imageDesigns).where(eq(imageDesigns.projectId, id)).all();
       for (const design of designs) {
@@ -273,21 +307,31 @@ export class PromptBuilderService {
     return this.atomic(() => {
       this.getProject(projectId);
       const timestamp = now();
+      const currentProfile = this.db.select().from(productProfiles).where(eq(productProfiles.projectId, projectId)).get();
+      const candidatesJson = profile.aiCandidates === undefined ? (currentProfile?.aiCandidatesJson ?? "[]") : JSON.stringify(profile.aiCandidates);
       this.db.insert(productProfiles).values({
         projectId,
         factsJson: JSON.stringify(profile.facts),
+        aiCandidatesJson: candidatesJson,
         updatedAt: timestamp,
       }).onConflictDoUpdate({
         target: productProfiles.projectId,
-        set: { factsJson: JSON.stringify(profile.facts), updatedAt: timestamp },
+        set: { factsJson: JSON.stringify(profile.facts), aiCandidatesJson: candidatesJson, updatedAt: timestamp },
       }).run();
-      this.db.delete(referenceImages).where(eq(referenceImages.projectId, projectId)).run();
+      this.db.delete(referenceImages).where(and(eq(referenceImages.projectId, projectId), isNull(referenceImages.storagePath))).run();
       if (profile.referenceImages.length) {
         this.db.insert(referenceImages).values(profile.referenceImages.map((image) => ({
           id: randomUUID(),
           projectId,
           identifier: image.identifier,
           filename: image.filename,
+          storagePath: image.storagePath,
+          mimeType: image.mimeType,
+          size: image.size,
+          aiClassification: image.aiClassification,
+          userClassification: image.userClassification,
+          confidence: image.confidence == null ? null : Math.round(image.confidence * 1_000_000),
+          status: image.status ?? "uploaded",
           createdAt: timestamp,
         }))).run();
       }
@@ -299,11 +343,93 @@ export class PromptBuilderService {
     this.getProject(projectId);
     const profile = this.db.select().from(productProfiles).where(eq(productProfiles.projectId, projectId)).get();
     if (!profile) throw new ServiceError("PRODUCT_PROFILE_NOT_FOUND", 404, "Product profile not found");
-    return productProfileInputSchema.parse({
-      facts: JSON.parse(profile.factsJson),
-      referenceImages: this.db.select().from(referenceImages).where(eq(referenceImages.projectId, projectId)).all()
-        .map(({ identifier, filename }) => ({ identifier, filename })),
-    });
+    const facts = JSON.parse(profile.factsJson);
+    return productProfileInputSchema.parse({ facts, confirmedFacts: facts,
+      aiCandidates: JSON.parse(profile.aiCandidatesJson), referenceImages: this.listReferenceImages(projectId) });
+  }
+
+  addReferenceImages(projectId: string, images: Array<{ storagePath: string; originalFilename: string; mimeType: "image/jpeg" | "image/png" | "image/webp"; size: number }>): PersistedReferenceImage[] {
+    this.getProject(projectId);
+    const timestamp = now();
+    const ids = images.map(() => randomUUID());
+    if (images.length) this.db.insert(referenceImages).values(images.map((image, index) => ({
+      id: ids[index], projectId, identifier: image.storagePath, filename: image.originalFilename,
+      storagePath: image.storagePath, mimeType: image.mimeType, size: image.size, status: "uploaded", createdAt: timestamp,
+    }))).run();
+    return ids.map((id) => this.getReferenceImage(id));
+  }
+
+  getReferenceImage(id: string): PersistedReferenceImage {
+    const row = this.db.select().from(referenceImages).where(eq(referenceImages.id, id)).get();
+    if (!row) throw new ServiceError("IMAGE_NOT_FOUND", 404, "Image not found");
+    const aiClassification = row.aiClassification ? imageClassificationSchema.parse(row.aiClassification) : null;
+    const userClassification = row.userClassification ? imageClassificationSchema.parse(row.userClassification) : null;
+    return { id: row.id, projectId: row.projectId, identifier: row.identifier, filename: row.filename, storagePath: row.storagePath ?? row.identifier,
+      mimeType: (row.mimeType ?? "image/png") as PersistedReferenceImage["mimeType"], size: row.size ?? 0,
+      aiClassification, userClassification, confidence: row.confidence == null ? null : row.confidence / 1_000_000,
+      status: row.status as PersistedReferenceImage["status"], effectiveClassification: userClassification ?? aiClassification ?? "unknown" };
+  }
+
+  listReferenceImages(projectId: string): PersistedReferenceImage[] {
+    this.getProject(projectId);
+    return this.db.select({ id: referenceImages.id }).from(referenceImages).where(eq(referenceImages.projectId, projectId)).all().map(({ id }) => this.getReferenceImage(id));
+  }
+
+  updateReferenceImage(id: string, patch: { userClassification: ImageClassification | null }): PersistedReferenceImage {
+    const current = this.getReferenceImage(id);
+    const classification = patch.userClassification == null ? null : imageClassificationSchema.parse(patch.userClassification);
+    this.db.update(referenceImages).set({ userClassification: classification, status: classification ? "reviewed" : current.aiClassification ? "classified" : "uploaded" }).where(eq(referenceImages.id, id)).run();
+    return this.getReferenceImage(id);
+  }
+
+  deleteReferenceImage(id: string): PersistedReferenceImage {
+    const image = this.getReferenceImage(id);
+    this.db.delete(referenceImages).where(eq(referenceImages.id, id)).run();
+    return image;
+  }
+
+  setAiClassifications(projectId: string, values: Array<{ imageId: string; classification: ImageClassification; confidence: number }>): PersistedReferenceImage[] {
+    const allowed = new Set(this.listReferenceImages(projectId).map(({ id }) => id));
+    for (const value of values) {
+      if (!allowed.has(value.imageId)) throw new ServiceError("IMAGE_NOT_FOUND", 404, "Image not found for project");
+      this.db.update(referenceImages).set({ aiClassification: imageClassificationSchema.parse(value.classification), confidence: Math.round(z.number().min(0).max(1).parse(value.confidence) * 1_000_000), status: "classified" }).where(eq(referenceImages.id, value.imageId)).run();
+    }
+    return this.listReferenceImages(projectId);
+  }
+
+  replaceAiCandidates(projectId: string, candidates: ProductFactCandidate[]): AiCandidate[] {
+    this.getProductProfile(projectId);
+    const imageIds = new Set(this.listReferenceImages(projectId).map(({ id }) => id));
+    const stored = candidates.map((candidate) => aiCandidateSchema.parse({ ...candidate, id: randomUUID() }));
+    if (stored.some((candidate) => candidate.evidenceImageIds.some((id) => !imageIds.has(id)))) throw new ServiceError("INVALID_EVIDENCE_IMAGE", 400, "Candidate evidence must reference an image in the project");
+    this.db.update(productProfiles).set({ aiCandidatesJson: JSON.stringify(stored), updatedAt: now() }).where(eq(productProfiles.projectId, projectId)).run();
+    return stored;
+  }
+
+  confirmProductCandidates(projectId: string, input: { candidateIds: string[]; removeCandidateIds?: string[]; edits?: Partial<ProductFacts> }): ProductProfile {
+    const profile = this.getProductProfile(projectId);
+    const selected = new Set(input.candidateIds);
+    const removed = new Set(input.removeCandidateIds ?? []);
+    const available = new Set((profile.aiCandidates ?? []).map((candidate) => candidate.id));
+    if ([...selected, ...removed].some((id) => !available.has(id))) throw new ServiceError("CANDIDATE_NOT_FOUND", 400, "Candidate not found for project");
+    const next: Record<string, unknown> = { ...profile.facts };
+    for (const candidate of profile.aiCandidates ?? []) if (selected.has(candidate.id)) next[candidate.field] = candidate.value;
+    Object.assign(next, input.edits ?? {});
+    const confirmed = productFactsSchema.parse(next);
+    const remaining = (profile.aiCandidates ?? []).filter((candidate) => !selected.has(candidate.id) && !removed.has(candidate.id));
+    this.db.update(productProfiles).set({ factsJson: JSON.stringify(confirmed), aiCandidatesJson: JSON.stringify(remaining), updatedAt: now() }).where(eq(productProfiles.projectId, projectId)).run();
+    return this.getProductProfile(projectId);
+  }
+
+  updateAiSettings(input: { baseUrl: string; visionModel: string; textModel: string }) {
+    const parsed = z.object({ baseUrl: z.string().url(), visionModel: z.string().trim().min(1).max(200), textModel: z.string().trim().min(1).max(200) }).parse(input);
+    this.db.insert(aiSettings).values({ id: 1, ...parsed, updatedAt: now() }).onConflictDoUpdate({ target: aiSettings.id, set: { ...parsed, updatedAt: now() } }).run();
+    return parsed;
+  }
+
+  getAiSettings(configured = Boolean(process.env.OPENAI_COMPAT_API_KEY)) {
+    const row = this.db.select().from(aiSettings).where(eq(aiSettings.id, 1)).get();
+    return { baseUrl: row?.baseUrl ?? "", visionModel: row?.visionModel ?? "", textModel: row?.textModel ?? "", configured };
   }
 
   listModules(options: { includeDisabled?: boolean } = {}): StoredModule[] {
