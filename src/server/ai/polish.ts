@@ -36,7 +36,7 @@ function tokens(value: string): string[] {
 }
 
 function numericAndOperatorTokens(value: string): string[] {
-  const numeric = [...value.matchAll(/(?<![\p{L}\p{N}])\d+(?:\s*(?:[.:/x×*+\-])\s*\d+)*(?:\s*(?:%|px|cm|mm|in|inch|inches))?(?![\p{L}\p{N}])/giu)]
+  const numeric = [...value.matchAll(/(?<![\p{L}\p{N}])(?:(?:[+\-−]\s*)?\p{Sc}\s*|\p{Sc}\s*[+\-−]\s*|[+\-−]\s*)?\d+(?:\s*(?:[.:/x×*+\-−])\s*\d+)*(?:\s*(?:%|px|cm|mm|in|inch|inches))?(?![\p{L}\p{N}])/giu)]
     .map(([token]) => token.toLowerCase().replace(/\s+/g, ""));
   const operators = [...value.matchAll(/[<>≤≥=±]/gu)].map(([token]) => token);
   return [...numeric, ...operators];

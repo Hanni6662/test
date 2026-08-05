@@ -47,12 +47,13 @@ const referenceImageSchema = z.object({
   effectiveClassification: imageClassificationSchema.optional(),
 });
 const aiCandidateSchema = z.intersection(z.object({ id: z.string() }), productFactCandidateSchema);
-const productProfileInputSchema = z.object({
+const productProfileSchema = z.object({
   facts: productFactsSchema,
   referenceImages: z.array(referenceImageSchema).max(50),
   confirmedFacts: productFactsSchema.optional(),
   aiCandidates: z.array(aiCandidateSchema).optional(),
 });
+export const productProfileWriteSchema = z.object({ facts: productFactsSchema }).strict();
 const jsonObjectSchema = z.record(z.string(), z.json());
 const selectedModuleIdsSchema = z.array(moduleIdSchema).max(200).refine(
   (ids) => new Set(ids).size === ids.length,
@@ -86,11 +87,12 @@ const storedModuleSchema = z.object({
   version: z.number().int().positive(),
   definition: promptModuleDefinitionSchema,
 });
-const productSnapshotSchema = productProfileInputSchema;
+const productSnapshotSchema = productProfileSchema;
 const designSnapshotSchema = designCreateSchema.extend({ id: z.string(), projectId: z.string() });
 
 export type ReferenceImage = z.infer<typeof referenceImageSchema>;
-export type ProductProfile = z.infer<typeof productProfileInputSchema>;
+export type ProductProfile = z.infer<typeof productProfileSchema>;
+export type ProductProfileWriteInput = z.infer<typeof productProfileWriteSchema>;
 export interface PersistedReferenceImage {
   id: string; projectId: string; identifier: string; filename: string; storagePath: string | null; uploadBacked: boolean;
   mimeType: "image/jpeg" | "image/png" | "image/webp" | null; size: number | null;
@@ -289,10 +291,7 @@ export class PromptBuilderService {
       const profile = this.db.select().from(productProfiles).where(eq(productProfiles.projectId, id)).get();
       if (profile) {
         const sourceProfile = this.getProductProfile(id);
-        this.upsertProductProfile(duplicate.id, {
-          facts: sourceProfile.facts,
-          referenceImages: [],
-        });
+        this.upsertProductProfile(duplicate.id, { facts: sourceProfile.facts });
         this.addLegacyReferenceImages(duplicate.id, sourceProfile.referenceImages.filter((image) => !image.uploadBacked)
           .map((image) => ({ identifier: image.identifier, filename: image.filename })));
       }
@@ -309,13 +308,13 @@ export class PromptBuilderService {
     });
   }
 
-  upsertProductProfile(projectId: string, input: ProductProfile): ProductProfile {
-    const profile = productProfileInputSchema.parse(input);
+  upsertProductProfile(projectId: string, input: ProductProfileWriteInput): ProductProfile {
+    const profile = productProfileWriteSchema.parse(input);
     return this.atomic(() => {
       this.getProject(projectId);
       const timestamp = now();
       const currentProfile = this.db.select().from(productProfiles).where(eq(productProfiles.projectId, projectId)).get();
-      const candidatesJson = profile.aiCandidates === undefined ? (currentProfile?.aiCandidatesJson ?? "[]") : JSON.stringify(profile.aiCandidates);
+      const candidatesJson = currentProfile?.aiCandidatesJson ?? "[]";
       this.db.insert(productProfiles).values({
         projectId,
         factsJson: JSON.stringify(profile.facts),
@@ -334,7 +333,7 @@ export class PromptBuilderService {
     const profile = this.db.select().from(productProfiles).where(eq(productProfiles.projectId, projectId)).get();
     if (!profile) throw new ServiceError("PRODUCT_PROFILE_NOT_FOUND", 404, "Product profile not found");
     const facts = JSON.parse(profile.factsJson);
-    return productProfileInputSchema.parse({ facts, confirmedFacts: facts,
+    return productProfileSchema.parse({ facts, confirmedFacts: facts,
       aiCandidates: JSON.parse(profile.aiCandidatesJson), referenceImages: this.listReferenceImages(projectId) });
   }
 

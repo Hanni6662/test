@@ -39,7 +39,6 @@ describe("PromptBuilderService persistence", () => {
     service.renameProject(project.id, { name: "Summer launch 2026" });
     service.upsertProductProfile(project.id, {
       facts,
-      referenceImages: [],
     });
     service.addLegacyReferenceImages(project.id, [{ identifier: "sha256:front", filename: "front.png" }]);
     const design = service.createDesign(project.id, {
@@ -74,7 +73,7 @@ describe("PromptBuilderService persistence", () => {
 
   it("keeps AI candidates evidenced and compiles only manually confirmed facts", () => {
     const project = service.createProject({ name: "Candidate review" });
-    service.upsertProductProfile(project.id, { facts, referenceImages: [] });
+    service.upsertProductProfile(project.id, { facts });
     const [image] = service.addReferenceImages(project.id, [{ storagePath: `${project.id}/front.png`, originalFilename: "front.png", mimeType: "image/png", size: 99 }]);
     const candidates = service.replaceAiCandidates(project.id, [{ field: "material", value: "linen", confidence: 0.83, evidenceImageIds: [image.id] }]);
     expect(service.getProductProfile(project.id).facts.material).toBe("100% cotton");
@@ -139,7 +138,7 @@ describe("PromptBuilderService persistence", () => {
 
   it("rejects AI candidate evidence from a legacy image the provider could not read", () => {
     const project = service.createProject({ name: "Legacy evidence" });
-    service.upsertProductProfile(project.id, { facts, referenceImages: [] });
+    service.upsertProductProfile(project.id, { facts });
     const [legacy] = service.addLegacyReferenceImages(project.id, [{ identifier: "sha256:legacy", filename: "legacy.png" }]);
     expect(() => service.replaceAiCandidates(project.id, [{ field: "material", value: "linen", confidence: 0.8, evidenceImageIds: [legacy.id] }]))
       .toThrowError(new ServiceError("INVALID_EVIDENCE_IMAGE", 400, "Candidate evidence must reference an uploaded image in the project"));
@@ -147,7 +146,7 @@ describe("PromptBuilderService persistence", () => {
 
   it("does not copy source-project upload paths or AI evidence when duplicating a project", () => {
     const source = service.createProject({ name: "Source uploads" });
-    service.upsertProductProfile(source.id, { facts, referenceImages: [] });
+    service.upsertProductProfile(source.id, { facts });
     const [image] = service.addReferenceImages(source.id, [{ storagePath: `${source.id}/front.png`, originalFilename: "front.png", mimeType: "image/png", size: 8 }]);
     service.replaceAiCandidates(source.id, [{ field: "material", value: "linen", confidence: 0.8, evidenceImageIds: [image.id] }]);
     const duplicate = service.duplicateProject(source.id);
@@ -157,10 +156,10 @@ describe("PromptBuilderService persistence", () => {
 
   it("does not erase uploaded images or pending AI candidates when confirmed facts are edited", () => {
     const project = service.createProject({ name: "Edit facts" });
-    service.upsertProductProfile(project.id, { facts, referenceImages: [] });
+    service.upsertProductProfile(project.id, { facts });
     const [image] = service.addReferenceImages(project.id, [{ storagePath: `${project.id}/front.png`, originalFilename: "front.png", mimeType: "image/png", size: 8 }]);
     service.replaceAiCandidates(project.id, [{ field: "material", value: "linen", confidence: 0.8, evidenceImageIds: [image.id] }]);
-    service.upsertProductProfile(project.id, { facts: { ...facts, title: "Edited title" }, referenceImages: [] });
+    service.upsertProductProfile(project.id, { facts: { ...facts, title: "Edited title" } });
     expect(service.getProductProfile(project.id).referenceImages.map(({ id }) => id)).toEqual([image.id]);
     expect(service.getProductProfile(project.id).aiCandidates).toHaveLength(1);
   });
@@ -217,7 +216,7 @@ describe("PromptBuilderService persistence", () => {
 
   it("keeps saved version snapshots immutable when profiles and modules change", () => {
     const project = service.createProject({ name: "Snapshots" });
-    service.upsertProductProfile(project.id, { facts, referenceImages: [] });
+    service.upsertProductProfile(project.id, { facts });
     const customModule = service.createCustomModule({
       id: "custom_snapshot_light",
       label: "Snapshot light",
@@ -235,7 +234,6 @@ describe("PromptBuilderService persistence", () => {
 
     service.upsertProductProfile(project.id, {
       facts: { ...facts, title: "Changed product" },
-      referenceImages: [],
     });
     service.updateCustomModule(customModule.id, { content: "Changed lighting instruction." });
 
@@ -248,7 +246,7 @@ describe("PromptBuilderService persistence", () => {
 
   it("restores by creating a new immutable version and leaves originals intact", () => {
     const project = service.createProject({ name: "Restore" });
-    service.upsertProductProfile(project.id, { facts, referenceImages: [] });
+    service.upsertProductProfile(project.id, { facts });
     const design = service.createDesign(project.id, {
       name: "Restore design",
       selectedModuleIds: ["purpose_amazon_listing"],
@@ -273,7 +271,6 @@ describe("PromptBuilderService persistence", () => {
     const project = service.createProject({ name: "Profile rollback" });
     service.upsertProductProfile(project.id, {
       facts,
-      referenceImages: [],
     });
     service.addLegacyReferenceImages(project.id, [{ identifier: "sha256:old", filename: "old.png" }]);
     const injector = new BetterSqlite3(databasePath);
@@ -283,7 +280,6 @@ describe("PromptBuilderService persistence", () => {
 
     service.upsertProductProfile(project.id, {
       facts: { ...facts, title: "Updated without touching images" },
-      referenceImages: [{ identifier: "sha256:new", filename: "new.png" }],
     });
 
     expect(service.getProductProfile(project.id)).toMatchObject({
@@ -296,7 +292,6 @@ describe("PromptBuilderService persistence", () => {
     const source = service.createProject({ name: "Duplicate rollback" });
     service.upsertProductProfile(source.id, {
       facts,
-      referenceImages: [],
     });
     service.addLegacyReferenceImages(source.id, [{ identifier: "sha256:source", filename: "source.png" }]);
     const injector = new BetterSqlite3(databasePath);
@@ -312,7 +307,7 @@ describe("PromptBuilderService persistence", () => {
 
   it("rolls back a restored draft when inserting its new version fails", () => {
     const project = service.createProject({ name: "Restore rollback" });
-    service.upsertProductProfile(project.id, { facts, referenceImages: [] });
+    service.upsertProductProfile(project.id, { facts });
     const design = service.createDesign(project.id, {
       name: "Restore rollback design",
       selectedModuleIds: ["purpose_amazon_listing"],
@@ -333,7 +328,7 @@ describe("PromptBuilderService persistence", () => {
 
   it("compiles a saved version directly from the snapshots captured for that version", () => {
     const project = service.createProject({ name: "Atomic capture" });
-    service.upsertProductProfile(project.id, { facts, referenceImages: [] });
+    service.upsertProductProfile(project.id, { facts });
     const design = service.createDesign(project.id, {
       name: "Atomic design",
       selectedModuleIds: ["purpose_amazon_listing"],
@@ -352,7 +347,7 @@ describe("PromptBuilderService persistence", () => {
 
   it("allocates distinct continuous version numbers across service instances", async () => {
     const project = service.createProject({ name: "Concurrent versions" });
-    service.upsertProductProfile(project.id, { facts, referenceImages: [] });
+    service.upsertProductProfile(project.id, { facts });
     const design = service.createDesign(project.id, {
       name: "Concurrent design",
       selectedModuleIds: ["purpose_amazon_listing"],
@@ -379,7 +374,7 @@ describe("PromptBuilderService persistence", () => {
 
   it("waits for a real competing write lock before allocating cross-connection versions", async () => {
     const project = service.createProject({ name: "Locked versions" });
-    service.upsertProductProfile(project.id, { facts, referenceImages: [] });
+    service.upsertProductProfile(project.id, { facts });
     const design = service.createDesign(project.id, {
       name: "Locked design",
       selectedModuleIds: ["purpose_amazon_listing"],
@@ -422,7 +417,6 @@ describe("PromptBuilderService persistence", () => {
     const project = service.createProject({ name: "Export" });
     service.upsertProductProfile(project.id, {
       facts,
-      referenceImages: [],
     });
     service.addLegacyReferenceImages(project.id, [{ identifier: "sha256:front", filename: "front.png" }]);
     const design = service.createDesign(project.id, {

@@ -80,7 +80,6 @@ describe("API error boundary", () => {
         features: [],
         backViewEvidence: false,
       },
-      referenceImages: [],
     });
     const corrupter = new BetterSqlite3(databasePath);
     corrupter.prepare("UPDATE product_profiles SET facts_json = ? WHERE project_id = ?")

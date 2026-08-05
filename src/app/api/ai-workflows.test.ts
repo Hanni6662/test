@@ -85,7 +85,7 @@ describe("image and AI workflow routes", () => {
     process.env.OPENAI_COMPAT_API_KEY = "secret"; process.env.OPENAI_COMPAT_ALLOWED_ORIGINS = "https://ai.example";
     const service = (await import("@/server/persistence/runtime")).getPromptBuilderService(); service.updateAiSettings({ baseUrl: "https://ai.example/v1", visionModel: "vision", textModel: "text" });
     const project = service.createProject({ name: "AI success" });
-    service.upsertProductProfile(project.id, { facts: { title: "Shoe", category: "Shoes", audience: "Adults", material: "Leather", colors: ["black"], features: ["laces"], backViewEvidence: false }, referenceImages: [] });
+    service.upsertProductProfile(project.id, { facts: { title: "Shoe", category: "Shoes", audience: "Adults", material: "Leather", colors: ["black"], features: ["laces"], backViewEvidence: false } });
     const uploads = await import("./projects/[id]/images/route"); const form = new FormData(); form.append("images", new File([PNG], "front.png", { type: "image/png" }));
     const [image] = await (await uploads.POST(new Request("http://x/images", { method: "POST", body: form }), { params: Promise.resolve({ id: project.id }) })).json();
     const fetcher = vi.fn()
@@ -98,14 +98,24 @@ describe("image and AI workflow routes", () => {
     expect(await (await extract.POST(new Request("http://x/extract", { method: "POST" }), { params: Promise.resolve({ id: project.id }) })).json()).toMatchObject({ aiCandidates: [{ field: "material", evidenceImageIds: [image.id] }] });
   });
 
-  it("round-trips product profile GET to POST without copying or replacing image rows", async () => {
+  it("accepts facts-only profile writes and rejects read-only or unknown fields", async () => {
     const service = (await import("@/server/persistence/runtime")).getPromptBuilderService(); const project = service.createProject({ name: "Profile round trip" });
-    service.upsertProductProfile(project.id, { facts: { title: "Shoe", category: "Shoes", audience: "Adults", material: "Leather", colors: [], features: [], backViewEvidence: false }, referenceImages: [] });
+    const facts = { title: "Shoe", category: "Shoes", audience: "Adults", material: "Leather", colors: [] as string[], features: [] as string[], backViewEvidence: false };
+    service.upsertProductProfile(project.id, { facts });
     const [image] = service.addReferenceImages(project.id, [{ storagePath: `${project.id}/one.png`, originalFilename: "one.png", mimeType: "image/png", size: 8 }]);
     const route = await import("./projects/[id]/product-profile/route");
     const getResponse = await route.GET(new Request("http://x/profile"), { params: Promise.resolve({ id: project.id }) }); const profile = await getResponse.json();
-    const postResponse = await route.POST(new Request("http://x/profile", { method: "POST", body: JSON.stringify(profile) }), { params: Promise.resolve({ id: project.id }) });
-    expect(postResponse.status).toBe(200);
+    for (const forbidden of [
+      { referenceImages: profile.referenceImages },
+      { confirmedFacts: profile.confirmedFacts },
+      { aiCandidates: profile.aiCandidates },
+      { unknown: true },
+    ]) {
+      const rejected = await route.POST(new Request("http://x/profile", { method: "POST", body: JSON.stringify({ facts, ...forbidden }) }), { params: Promise.resolve({ id: project.id }) });
+      expect(rejected.status).toBe(400); expect(await rejected.json()).toMatchObject({ error: { code: "INVALID_INPUT" } });
+    }
+    const postResponse = await route.POST(new Request("http://x/profile", { method: "POST", body: JSON.stringify({ facts: { ...facts, title: "Updated Shoe" } }) }), { params: Promise.resolve({ id: project.id }) });
+    expect(postResponse.status).toBe(200); expect((await postResponse.json()).facts.title).toBe("Updated Shoe");
     expect(service.listReferenceImages(project.id).map(({ id }) => id)).toEqual([image.id]);
   });
 
@@ -142,7 +152,7 @@ describe("image and AI workflow routes", () => {
     const service = (await import("@/server/persistence/runtime")).getPromptBuilderService();
     service.updateAiSettings({ baseUrl: "https://ai.example/v1", visionModel: "vision", textModel: "text" });
     const project = service.createProject({ name: "Polish" });
-    service.upsertProductProfile(project.id, { facts: { title: "Shoe", category: "Shoes", audience: "Adults", material: "Leather", colors: ["black"], features: ["laces"], backViewEvidence: false }, referenceImages: [] });
+    service.upsertProductProfile(project.id, { facts: { title: "Shoe", category: "Shoes", audience: "Adults", material: "Leather", colors: ["black"], features: ["laces"], backViewEvidence: false } });
     const design = service.createDesign(project.id, { name: "Hero", selectedModuleIds: ["negative_product_integrity"], parameters: {}, custom: {} });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ prompt: "A nice shoe" }) } }] }), { status: 200 })));
     const route = await import("./designs/[id]/polish/route");
@@ -157,7 +167,7 @@ describe("image and AI workflow routes", () => {
     const service = (await import("@/server/persistence/runtime")).getPromptBuilderService();
     service.updateAiSettings({ baseUrl: "https://ai.example/v1", visionModel: "vision", textModel: "text" });
     const project = service.createProject({ name: "Accepted polish" });
-    service.upsertProductProfile(project.id, { facts: { title: "Shoe", category: "Shoes", audience: "Adults", material: "Leather", colors: ["black"], features: ["laces"], backViewEvidence: false }, referenceImages: [] });
+    service.upsertProductProfile(project.id, { facts: { title: "Shoe", category: "Shoes", audience: "Adults", material: "Leather", colors: ["black"], features: ["laces"], backViewEvidence: false } });
     const design = service.createDesign(project.id, { name: "Hero", selectedModuleIds: [], parameters: {}, custom: {} });
     const deterministic = service.compile(design.id).prompt; const polished = deterministic.replace("No additional direction selected.", "No additional direction, selected.");
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ prompt: polished }) } }] }), { status: 200 })));

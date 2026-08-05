@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -42,5 +42,24 @@ describe("quarantined image deletion", () => {
     await expect(deleteReferenceImageConsistently({ getReferenceImage: (id) => actual.getReferenceImage(id), deleteReferenceImage: () => { throw databaseError; } }, image.id, join(root, "uploads"), { removeDirectory: async () => { throw new Error("locked directory"); } })).rejects.toBe(databaseError);
     expect(existsSync(original)).toBe(true);
     actual.close();
+  });
+
+  it("sweeps a prior cleanup-pending orphan on the next deletion without touching unrelated files", async () => {
+    const root = mkdtempSync(join(tmpdir(), "delete-image-")); roots.push(root); const service = createPromptBuilderService(join(root, "app.db"));
+    const project = service.createProject({ name: "Retry cleanup" }); const projectRoot = join(root, "uploads", project.id); mkdirSync(projectRoot, { recursive: true });
+    writeFileSync(join(projectRoot, "one.png"), new Uint8Array([1])); writeFileSync(join(projectRoot, "two.png"), new Uint8Array([2]));
+    const [first, second] = service.addReferenceImages(project.id, [
+      { storagePath: `${project.id}/one.png`, originalFilename: "one.png", mimeType: "image/png", size: 1 },
+      { storagePath: `${project.id}/two.png`, originalFilename: "two.png", mimeType: "image/png", size: 1 },
+    ]);
+    await deleteReferenceImageConsistently(service, first.id, join(root, "uploads"), { unlinkFile: async () => { throw new Error("locked"); } });
+    const quarantine = join(projectRoot, ".quarantine"); const [orphanName] = readdirSync(quarantine); const orphan = join(quarantine, orphanName);
+    writeFileSync(join(quarantine, "keep.txt"), new Uint8Array([3]));
+
+    await deleteReferenceImageConsistently(service, second.id, join(root, "uploads"));
+
+    expect(existsSync(orphan)).toBe(false);
+    expect(existsSync(join(quarantine, "keep.txt"))).toBe(true);
+    service.close();
   });
 });

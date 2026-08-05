@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, rename, rmdir, unlink } from "node:fs/promises";
+import { mkdir, readdir, rename, rmdir, unlink } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { ServiceError, type PersistedReferenceImage, type PromptBuilderService } from "./persistence/service";
 
@@ -7,6 +7,8 @@ export interface ImageDeletionOptions {
   unlinkFile?: (path: string) => Promise<void>;
   removeDirectory?: (path: string) => Promise<void>;
 }
+
+const CLEANUP_FILE_PATTERN = /^cleanup-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\.delete$/i;
 
 async function removeIfEmpty(path: string, removeDirectory: (path: string) => Promise<void>): Promise<boolean> {
   try {
@@ -27,6 +29,21 @@ function resolveUploadedPath(uploadRoot: string, image: PersistedReferenceImage)
   return { projectRoot, originalPath };
 }
 
+export async function sweepImageDeletionQuarantine(projectRoot: string): Promise<void> {
+  const quarantineDirectory = resolve(projectRoot, ".quarantine");
+  let entries;
+  try {
+    entries = await readdir(quarantineDirectory, { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") return;
+    return;
+  }
+  await Promise.all(entries
+    .filter((entry) => entry.isFile() && CLEANUP_FILE_PATTERN.test(entry.name))
+    .map((entry) => unlink(resolve(quarantineDirectory, entry.name)).catch(() => undefined)));
+  await removeIfEmpty(quarantineDirectory, rmdir);
+}
+
 export async function deleteReferenceImageConsistently(
   service: Pick<PromptBuilderService, "getReferenceImage" | "deleteReferenceImage">,
   imageId: string,
@@ -41,7 +58,10 @@ export async function deleteReferenceImageConsistently(
 
   const { projectRoot, originalPath } = resolveUploadedPath(uploadRoot, image);
   const quarantineDirectory = resolve(projectRoot, ".quarantine");
-  const quarantinePath = resolve(quarantineDirectory, `${randomUUID()}.delete`);
+  await sweepImageDeletionQuarantine(projectRoot);
+  const deletionId = randomUUID();
+  const quarantinePath = resolve(quarantineDirectory, `active-${deletionId}.delete`);
+  const cleanupPath = resolve(quarantineDirectory, `cleanup-${deletionId}.delete`);
   await mkdir(quarantineDirectory, { recursive: true });
   await rename(originalPath, quarantinePath);
   try {
@@ -57,7 +77,12 @@ export async function deleteReferenceImageConsistently(
   }
 
   try {
-    await (options.unlinkFile ?? unlink)(quarantinePath);
+    await rename(quarantinePath, cleanupPath);
+  } catch {
+    return { deleted: true, cleanupPending: true };
+  }
+  try {
+    await (options.unlinkFile ?? unlink)(cleanupPath);
   } catch {
     return { deleted: true, cleanupPending: true };
   }

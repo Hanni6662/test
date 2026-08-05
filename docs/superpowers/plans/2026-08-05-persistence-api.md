@@ -36,6 +36,11 @@
 - [x] Implement shared request parsing/error mapping and route handlers for projects, profiles, designs, compile, versions, restore, modules, and export.
 - [x] Run route tests and confirm GREEN.
 
+#### Product profile contract
+
+- `POST /api/projects/:id/product-profile` accepts exactly `{ "facts": ProductFacts }`. The strict request schema rejects `referenceImages`, `confirmedFacts`, `aiCandidates`, and unknown fields with structured `INVALID_INPUT` HTTP 400 responses.
+- `GET /api/projects/:id/product-profile` returns the full read model. Its `referenceImages`, `confirmedFacts`, and `aiCandidates` fields are server-owned and read-only through this route; extraction and confirmation use their dedicated endpoints.
+
 ### Task 3: Runtime and verification
 
 **Files:**

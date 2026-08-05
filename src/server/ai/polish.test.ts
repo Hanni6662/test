@@ -33,4 +33,11 @@ describe("safe prompt polish", () => {
     expect(() => validatePolishedPrompt(original, original.replace("1:5 scale", "1.5 scale"))).toThrowError(/preserve/i);
     expect(() => validatePolishedPrompt(original, original.replace("1024 x 768", "1024 + 768"))).toThrowError(/preserve/i);
   });
+
+  it("binds unary signs and currency symbols to their numeric values", () => {
+    const constrained = original.replace("balanced 1:5 scale", "balanced -5% exposure, −2 px offset, $10 budget, and 1:5 scale");
+    expect(() => validatePolishedPrompt(constrained, constrained.replace("-5% exposure", "+5% exposure"))).toThrowError(/preserve/i);
+    expect(() => validatePolishedPrompt(constrained, constrained.replace("−2 px offset", "-2 px offset"))).toThrowError(/preserve/i);
+    expect(() => validatePolishedPrompt(constrained, constrained.replace("$10 budget", "€10 budget"))).toThrowError(/preserve/i);
+  });
 });
