@@ -130,13 +130,21 @@ function parseJson<T>(value: string, schema: z.ZodType<T>): T {
 }
 
 function safeParameters(value: Record<string, z.infer<typeof z.json>>): Record<string, z.infer<typeof z.json>> {
-  const sensitive = /^(api[-_]?key|secret|token|password|authorization)$/i;
+  const isSensitiveKey = (key: string): boolean => {
+    const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+    return normalized === "authorization"
+      || normalized.endsWith("apikey")
+      || normalized.endsWith("privatekey")
+      || normalized.endsWith("password")
+      || normalized.endsWith("secret")
+      || normalized.endsWith("token");
+  };
   const clean = (input: z.infer<typeof z.json>): z.infer<typeof z.json> => {
     if (Array.isArray(input)) return input.map(clean);
     if (input && typeof input === "object") {
       return Object.fromEntries(
         Object.entries(input)
-          .filter(([key]) => !sensitive.test(key))
+          .filter(([key]) => !isSensitiveKey(key))
           .map(([key, nested]) => [key, clean(nested)]),
       );
     }

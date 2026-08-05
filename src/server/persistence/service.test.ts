@@ -152,8 +152,23 @@ describe("PromptBuilderService persistence", () => {
     const design = service.createDesign(project.id, {
       name: "Export design",
       selectedModuleIds: ["purpose_amazon_listing"],
-      parameters: { width: 1024, apiKey: "must-not-export" },
-      custom: { headline: "Summer" },
+      parameters: {
+        width: 1024,
+        apiKey: "must-not-export",
+        clientSecret: "client-secret-value",
+        nested: {
+          access_token: "access-token-value",
+          tokenCount: 37,
+          entries: [
+            { refreshToken: "refresh-token-value", label: "safe entry" },
+            { "private-key": "private-key-value", retryCount: 2 },
+          ],
+        },
+      },
+      custom: {
+        headline: "Summer",
+        credentials: [{ client_secret: "custom-client-secret", caption: "safe caption" }],
+      },
     });
     const version = service.saveVersion(design.id);
 
@@ -164,8 +179,20 @@ describe("PromptBuilderService persistence", () => {
       formatVersion: 1,
       facts,
       referenceImageIdentifiers: ["sha256:front"],
-      parameters: { width: 1024 },
-      custom: { headline: "Summer" },
+      parameters: {
+        width: 1024,
+        nested: {
+          tokenCount: 37,
+          entries: [
+            { label: "safe entry" },
+            { retryCount: 2 },
+          ],
+        },
+      },
+      custom: {
+        headline: "Summer",
+        credentials: [{ caption: "safe caption" }],
+      },
       compilerVersion: "1.0.0",
     });
     expect(exported.compile).toEqual(version.compileSnapshot);
@@ -173,6 +200,12 @@ describe("PromptBuilderService persistence", () => {
     expect(exported.warnings).toEqual(version.compileSnapshot.warnings);
     expect(json).not.toContain("must-not-export");
     expect(json.toLowerCase()).not.toContain("apikey");
+    expect(json).not.toContain("client-secret-value");
+    expect(json).not.toContain("access-token-value");
+    expect(json).not.toContain("refresh-token-value");
+    expect(json).not.toContain("private-key-value");
+    expect(json).not.toContain("custom-client-secret");
+    expect(json).toContain("tokenCount");
     expect(json).not.toContain("imageData");
   });
 });
