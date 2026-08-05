@@ -140,7 +140,7 @@ function Modules({ modules, refresh, setError, setNotice }: { modules: StoredMod
   const [edit, setEdit] = useState<{ mode: "create" | "clone" | "edit"; source?: string; module: PromptModuleDefinition } | null>(null);
   const [keyInput, setKeyInput] = useState("");
   const [keyError, setKeyError] = useState("");
-  const builtin = modules.filter((m) => m.kind === "builtin"); const custom = modules.filter((m) => m.kind === "custom"); const fresh: PromptModuleDefinition = { id: "custom_new_module", label: "", category: "purpose", content: "", capabilities: [], exportableParameterKeys: [] };
+  const builtin = modules.filter((m) => m.kind === "builtin"); const custom = modules.filter((m) => m.kind === "custom"); const fresh: PromptModuleDefinition = { id: "custom_new_module", label: "", category: "purpose", content: "", contentZh: "", capabilities: [], exportableParameterKeys: [] };
   const openEditor = (value: { mode: "create" | "clone" | "edit"; source?: string; module: PromptModuleDefinition }) => { setEdit(value); setKeyInput((value.module.exportableParameterKeys ?? []).join(", ")); setKeyError(""); };
   const closeEditor = () => { setEdit(null); setKeyInput(""); setKeyError(""); };
   const changeKeys = (raw: string) => { setKeyInput(raw); setKeyError(parseExportableParameterKeys(raw).error); };

@@ -81,7 +81,8 @@ const compileIssueSchema = z.object({
 });
 const compileResultSchema = z.object({
   prompt: z.string(),
-  sections: z.array(z.object({ title: z.string(), content: z.string() })),
+  compiledChinese: z.string(),
+  sections: z.array(z.object({ title: z.string(), titleZh: z.string(), content: z.string(), contentZh: z.string() })),
   warnings: z.array(compileIssueSchema),
   errors: z.array(compileIssueSchema),
 });
@@ -629,6 +630,7 @@ export class PromptBuilderService {
       label: `Custom ${category} direction`,
       category: category as ModuleCategory,
       content: content!,
+      contentZh: `自定义方向：${content!}`,
       capabilities: [],
       exportableParameterKeys: [],
     }));
@@ -762,9 +764,10 @@ export class PromptBuilderService {
 
   exportVersion(versionId: string): VersionExport {
     const version = this.getVersion(versionId);
-    const compile = {
+    const compile: CompileResult = {
       prompt: version.compileSnapshot.prompt,
-      sections: version.compileSnapshot.sections.map(({ title, content }) => ({ title, content })),
+      compiledChinese: version.compileSnapshot.compiledChinese,
+      sections: version.compileSnapshot.sections.map(({ title, titleZh, content, contentZh }) => ({ title, titleZh, content, contentZh })),
       warnings: version.compileSnapshot.warnings.map(({ code, message, moduleIds }) => ({
         code, message, moduleIds: [...moduleIds],
       })),
@@ -792,6 +795,7 @@ export class PromptBuilderService {
           label: definition.label,
           category: definition.category,
           content: definition.content,
+          contentZh: definition.contentZh,
           capabilities: [...(definition.capabilities ?? [])],
           exportableParameterKeys: [...(definition.exportableParameterKeys ?? [])],
         },

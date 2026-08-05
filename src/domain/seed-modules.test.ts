@@ -55,4 +55,9 @@ describe("seedPromptModules", () => {
       ),
     ).toBe(true);
   });
+
+  it("provides explicit Chinese semantics for every curated module", () => {
+    expect(seedPromptModules.every((module) => /[\u3400-\u9fff]/u.test(module.contentZh))).toBe(true);
+    expect(seedPromptModules.every((module) => module.contentZh !== module.content)).toBe(true);
+  });
 });

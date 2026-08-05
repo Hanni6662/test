@@ -275,6 +275,7 @@ describe("PromptBuilderService persistence", () => {
       label: "Summer scene",
       category: "scene",
       content: "Use a restrained sunny backdrop.",
+      contentZh: "使用克制的阳光背景。",
       capabilities: ["scene:environment"],
     });
     expect(custom.version).toBe(1);
@@ -300,6 +301,7 @@ describe("PromptBuilderService persistence", () => {
       label: "Snapshot light",
       category: "lighting",
       content: "Original lighting instruction.",
+      contentZh: "原始灯光指令。",
       capabilities: [],
     });
     const design = service.createDesign(project.id, {

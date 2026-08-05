@@ -67,6 +67,7 @@ export const promptModuleDefinitionSchema = z.object({
   label: normalizedText(120),
   category: moduleCategorySchema,
   content: normalizedText(2000),
+  contentZh: normalizedText(2000),
   capabilities: z.array(moduleCapabilitySchema).max(moduleCapabilities.length).default([]),
   exportableParameterKeys: z.array(moduleParameterKeySchema).max(50)
     .refine((keys) => new Set(keys).size === keys.length, "Exportable parameter keys must be unique")
@@ -78,6 +79,7 @@ export interface PromptModuleDefinition {
   readonly label: string;
   readonly category: ModuleCategory;
   readonly content: string;
+  readonly contentZh: string;
   readonly capabilities?: readonly ModuleCapability[];
   readonly exportableParameterKeys?: readonly string[];
 }
@@ -105,11 +107,14 @@ export interface CompileIssue {
 
 export interface PromptSection {
   title: string;
+  titleZh: string;
   content: string;
+  contentZh: string;
 }
 
 export interface CompileResult {
   prompt: string;
+  compiledChinese: string;
   sections: PromptSection[];
   warnings: CompileIssue[];
   errors: CompileIssue[];

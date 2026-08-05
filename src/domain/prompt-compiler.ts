@@ -21,6 +21,17 @@ export const SECTION_TITLES = [
   "Negative Constraints",
 ] as const;
 
+export const SECTION_TITLES_ZH = [
+  "产品事实（不可更改）",
+  "用途与主体",
+  "构图与镜头",
+  "场景",
+  "风格、色彩与灯光",
+  "文字",
+  "输出规格",
+  "负向约束",
+] as const;
+
 const SECTION_CATEGORIES: ReadonlyArray<readonly ModuleCategory[]> = [
   [],
   ["purpose", "subject"],
@@ -31,10 +42,6 @@ const SECTION_CATEGORIES: ReadonlyArray<readonly ModuleCategory[]> = [
   ["output"],
   ["negative"],
 ];
-
-const CATEGORY_ORDER = new Map(
-  SECTION_CATEGORIES.flat().map((category, index) => [category, index]),
-);
 
 function formatFacts(facts: ProductFacts): string {
   return [
@@ -49,12 +56,17 @@ function formatFacts(facts: ProductFacts): string {
   ].join("\n");
 }
 
-function byCanonicalOrder(left: PromptModuleDefinition, right: PromptModuleDefinition): number {
-  const categoryDifference =
-    (CATEGORY_ORDER.get(left.category) ?? Number.MAX_SAFE_INTEGER) -
-    (CATEGORY_ORDER.get(right.category) ?? Number.MAX_SAFE_INTEGER);
-  if (categoryDifference) return categoryDifference;
-  return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+function formatFactsZh(facts: ProductFacts): string {
+  return [
+    `商品标题：${facts.title}`,
+    `商品类别：${facts.category}`,
+    `目标人群：${facts.audience}`,
+    `材质：${facts.material}`,
+    `颜色：${facts.colors.join("、") || "未提供"}`,
+    `已验证卖点：${facts.features.join("、") || "未提供"}`,
+    `背面证据：${facts.backViewEvidence ? "已提供" : "未提供"}`,
+    "以上产品事实均不可更改；不得虚构任何未经证实的产品细节。",
+  ].join("\n");
 }
 
 function issue(code: string, message: string, moduleIds: string[]): CompileIssue {
@@ -93,10 +105,17 @@ export function compilePrompt(
 
   const selectedIds = new Set(snapshot.selectedModuleIds);
   const knownIds = new Set(allModules.map((module) => module.id));
-  const selectedModules = [
-    ...catalog.filter((module) => selectedIds.has(module.id)),
-    ...snapshot.customModules,
-  ].sort(byCanonicalOrder);
+  const catalogById = new Map(catalog.map((module) => [module.id, module]));
+  const selectedCatalog = snapshot.selectedModuleIds.flatMap((id) => {
+    const module = catalogById.get(id);
+    return module ? [module] : [];
+  });
+  const selectedModules = SECTION_CATEGORIES.flatMap((categories) => categories.flatMap((category) => [
+    ...selectedCatalog.filter((module) => module.category === category),
+    ...snapshot.customModules
+      .filter((module) => module.category === category)
+      .sort((left, right) => left.id.localeCompare(right.id)),
+  ]));
 
   const warnings: CompileIssue[] = [];
   const errors: CompileIssue[] = [];
@@ -148,16 +167,22 @@ export function compilePrompt(
   }
 
   const sections = SECTION_TITLES.map((title, index) => {
-    if (index === 0) return { title, content: formatFacts(snapshot.facts) };
+    const titleZh = SECTION_TITLES_ZH[index];
+    if (index === 0) return { title, titleZh, content: formatFacts(snapshot.facts), contentZh: formatFactsZh(snapshot.facts) };
 
     const categories = new Set(SECTION_CATEGORIES[index]);
-    const content = selectedModules
-      .filter((module) => categories.has(module.category))
-      .map((module) => `- ${module.content}`)
-      .join("\n");
-    return { title, content: content || "No additional direction selected." };
+    const sectionModules = selectedModules.filter((module) => categories.has(module.category));
+    const content = sectionModules.map((module) => `- ${module.content}`).join("\n");
+    const contentZh = sectionModules.map((module) => `- ${module.contentZh}`).join("\n");
+    return {
+      title,
+      titleZh,
+      content: content || "No additional direction selected.",
+      contentZh: contentZh || "未选择额外方向。",
+    };
   });
 
   const prompt = sections.map((section) => `## ${section.title}\n${section.content}`).join("\n\n");
-  return { prompt, sections, warnings, errors };
+  const compiledChinese = sections.map((section) => `## ${section.titleZh}\n${section.contentZh}`).join("\n\n");
+  return { prompt, compiledChinese, sections, warnings, errors };
 }
