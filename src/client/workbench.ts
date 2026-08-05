@@ -77,6 +77,44 @@ export function shouldAcceptCompile(responseRevision: number, currentRevision: n
   return responseRevision === currentRevision;
 }
 
+type ParameterModule = {
+  id: string;
+  definition: { exportableParameterKeys?: readonly string[] };
+};
+
+export function declaredParameterKeys(selectedModuleIds: readonly string[], modules: readonly ParameterModule[]): string[] {
+  const selected = new Set(selectedModuleIds);
+  return [...new Set(modules
+    .filter((module) => selected.has(module.id))
+    .flatMap((module) => module.definition.exportableParameterKeys ?? []))];
+}
+
+export function reconcileDeclaredParameters(parameters: Record<string, unknown>, allowedKeys: readonly string[]): Record<string, unknown> {
+  const allowed = new Set(allowedKeys);
+  return Object.fromEntries(Object.entries(parameters).filter(([key]) => allowed.has(key)));
+}
+
+export function parseParameterValue(raw: string): unknown {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  try { return JSON.parse(trimmed); } catch { return raw; }
+}
+
+export function formatParameterValue(value: unknown): string {
+  if (value === undefined) return "";
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+
+export function parseExportableParameterKeys(raw: string): { keys: string[]; error: string } {
+  const keys = raw.split(/[,，\s]+/).map((key) => key.trim()).filter(Boolean);
+  if (keys.length > 50) return { keys, error: "导出参数键最多可配置 50 个" };
+  const invalid = keys.find((key) => !/^[a-z][a-zA-Z0-9_]{0,63}$/.test(key));
+  if (invalid) return { keys, error: `“${invalid}” 不是合法的 ASCII 参数键（仅限字母、数字和下划线）` };
+  const duplicate = keys.find((key, index) => keys.indexOf(key) !== index);
+  if (duplicate) return { keys, error: `参数键“${duplicate}”重复` };
+  return { keys, error: "" };
+}
+
 function cleanValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(cleanValue);
   if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).filter(([key]) => !sensitiveKey(key)).map(([key, nested]) => [key, cleanValue(nested)]));

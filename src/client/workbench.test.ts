@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { canExportCompile, createDebouncer, describeCompile, diffVersions, imageClassificationOptions, safeDraftExport, shouldAcceptCompile } from "./workbench";
+import { canExportCompile, createDebouncer, declaredParameterKeys, describeCompile, diffVersions, imageClassificationOptions, parseExportableParameterKeys, parseParameterValue, reconcileDeclaredParameters, safeDraftExport, shouldAcceptCompile } from "./workbench";
 
 describe("workbench helpers", () => {
   afterEach(() => vi.useRealTimers());
@@ -69,5 +69,30 @@ describe("workbench helpers", () => {
   it("accepts compile responses only for the latest edit revision", () => {
     expect(shouldAcceptCompile(4, 4)).toBe(true);
     expect(shouldAcceptCompile(3, 4)).toBe(false);
+  });
+
+  it("lists only parameters declared by selected modules and removes undeclared values", () => {
+    const modules = [
+      { id: "output_amazon_listing", definition: { exportableParameterKeys: ["width", "metadata"] } },
+      { id: "output_square", definition: { exportableParameterKeys: ["width", "height"] } },
+    ];
+
+    const keys = declaredParameterKeys(["output_amazon_listing"], modules);
+    expect(keys).toEqual(["width", "metadata"]);
+    expect(reconcileDeclaredParameters(
+      { width: 1200, metadata: { label: "hero" }, height: 900 },
+      keys,
+    )).toEqual({ width: 1200, metadata: { label: "hero" } });
+  });
+
+  it("parses generic parameter values and validates exportable parameter keys", () => {
+    expect(parseParameterValue("1600")).toBe(1600);
+    expect(parseParameterValue('{"label":"hero"}')).toEqual({ label: "hero" });
+    expect(parseParameterValue("hero")).toBe("hero");
+    expect(parseExportableParameterKeys("width, metadata")).toEqual({ keys: ["width", "metadata"], error: "" });
+    expect(parseExportableParameterKeys("width, width").error).toContain("重复");
+    expect(parseExportableParameterKeys("bad-key").error).toContain("ASCII");
+    expect(parseExportableParameterKeys("Width").error).toContain("ASCII");
+    expect(parseExportableParameterKeys(Array.from({ length: 51 }, (_, index) => `key${index}`).join(",")).error).toContain("50");
   });
 });
