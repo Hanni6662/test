@@ -54,6 +54,7 @@ export const imageDesigns = sqliteTable("image_designs", {
   selectedModuleIdsJson: text("selected_module_ids_json").notNull(),
   parametersJson: text("parameters_json").notNull(),
   customJson: text("custom_json").notNull(),
+  revision: integer("revision").notNull().default(0),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });

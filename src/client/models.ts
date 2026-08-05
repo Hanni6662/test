@@ -1,7 +1,9 @@
 import type { CompileResult, ModuleCategory, ProductFacts, PromptModuleDefinition } from "@/domain/types";
 
 export interface Project { id: string; name: string; createdAt: string; updatedAt: string }
-export interface Design { id: string; projectId: string; name: string; selectedModuleIds: string[]; parameters: Record<string, unknown>; custom: Record<string, unknown> }
+export interface Design { id: string; projectId: string; name: string; selectedModuleIds: string[]; parameters: Record<string, unknown>; custom: Record<string, unknown>; revision: number }
+export interface CompileEnvelope { designId: string; revision: number; design: Design; compile: CompileResult }
+export interface CompileState extends CompileEnvelope { localRevision: number }
 export interface StoredModule { id: string; kind: "builtin" | "custom"; version: number; enabled: boolean; definition: PromptModuleDefinition }
 export interface ReferenceImage { id: string; filename: string; uploadBacked: boolean; aiClassification: string | null; userClassification: string | null; effectiveClassification: string; confidence: number | null }
 export interface Candidate { id: string; field: keyof ProductFacts; value: unknown; confidence: number; evidenceImageIds: string[] }

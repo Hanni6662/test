@@ -169,4 +169,32 @@ describe("API error boundary", () => {
       expect(body.error.issues[0]?.message).toBe("Selected module IDs must be unique");
     }
   });
+
+  it("returns atomic compile envelopes and structured stale/hard-gate conflicts", async () => {
+    const { getPromptBuilderService } = await import("@/server/persistence/runtime");
+    const service = getPromptBuilderService();
+    const project = service.createProject({ name: "Atomic API" });
+    service.upsertProductProfile(project.id, { facts: {
+      title: "Blue dress", category: "Dresses", audience: "Children", material: "Cotton",
+      colors: ["blue"], features: [], backViewEvidence: false,
+    } });
+    const design = service.createDesign(project.id, { name: "Hero", selectedModuleIds: [], parameters: {}, custom: {} });
+    const { PATCH } = await import("./designs/[id]/route");
+    const request = (expectedRevision: number) => new Request(`http://localhost/api/designs/${design.id}`, {
+      method: "PATCH", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ expectedRevision, selectedModuleIds: ["camera_back_view"], parameters: {}, custom: {} }),
+    });
+    const saved = await PATCH(request(0), { params: Promise.resolve({ id: design.id }) });
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({ designId: design.id, revision: 1, design: { revision: 1 }, compile: { errors: [{ code: "BACK_VIEW_EVIDENCE_REQUIRED" }] } });
+    const stale = await PATCH(request(0), { params: Promise.resolve({ id: design.id }) });
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toEqual({ error: { code: "STALE_REVISION", message: "Design revision is stale" } });
+
+    const { POST } = await import("./designs/[id]/versions/route");
+    const version = await POST(new Request(`http://localhost/api/designs/${design.id}/versions`, { method: "POST" }), { params: Promise.resolve({ id: design.id }) });
+    expect(version.status).toBe(422);
+    expect(await version.json()).toEqual({ error: { code: "HARD_CONSTRAINTS", message: "Design has hard constraint errors" } });
+    expect(service.listVersions(design.id)).toEqual([]);
+  });
 });

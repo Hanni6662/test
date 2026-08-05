@@ -1,6 +1,6 @@
 import { api, parseBody } from "@/server/http";
 import { getPromptBuilderService } from "@/server/persistence/runtime";
-import { designPatchSchema } from "@/server/persistence/service";
+import { designSaveAndCompileSchema } from "@/server/persistence/service";
 
 type Context = { params: Promise<{ id: string }> };
 export async function GET(_request: Request, context: Context) {
@@ -8,8 +8,8 @@ export async function GET(_request: Request, context: Context) {
 }
 
 export async function PATCH(request: Request, context: Context) {
-  return api(async () => getPromptBuilderService().autosaveDesign(
+  return api(async () => getPromptBuilderService().saveAndCompile(
     (await context.params).id,
-    await parseBody(request, designPatchSchema),
+    await parseBody(request, designSaveAndCompileSchema),
   ));
 }

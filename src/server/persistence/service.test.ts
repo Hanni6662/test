@@ -50,7 +50,7 @@ describe("PromptBuilderService persistence", () => {
     service.autosaveDesign(design.id, {
       selectedModuleIds: ["purpose_amazon_listing", "lighting_soft_daylight"],
       parameters: { width: 1600, height: 1600 },
-    });
+    }, design.revision);
     service.close();
     service = createPromptBuilderService(join(directory, "app.db"));
 
@@ -61,6 +61,54 @@ describe("PromptBuilderService persistence", () => {
     const duplicate = service.duplicateProject(project.id, { name: "Copy" });
     expect(service.getProductProfile(duplicate.id).facts.title).toBe(facts.title);
     expect(service.listProjects()).toHaveLength(2);
+  });
+
+  it("atomically saves and compiles with revision CAS across connections", () => {
+    const project = service.createProject({ name: "CAS design" });
+    service.upsertProductProfile(project.id, { facts });
+    const design = service.createDesign(project.id, {
+      name: "CAS hero",
+      selectedModuleIds: ["purpose_amazon_listing"],
+      parameters: {},
+      custom: {},
+    });
+    expect(design.revision).toBe(0);
+    expect(service.compileEnvelope(design.id)).toMatchObject({ designId: design.id, revision: 0, design: { id: design.id, revision: 0 } });
+    const secondService = createPromptBuilderService(databasePath);
+    try {
+      const saved = service.saveAndCompile(design.id, {
+        expectedRevision: 0,
+        selectedModuleIds: ["purpose_amazon_listing", "lighting_soft_daylight"],
+        parameters: { width: 1200 },
+        custom: {},
+      });
+      expect(saved).toMatchObject({ designId: design.id, revision: 1, design: { revision: 1, parameters: { width: 1200 } } });
+      expect(saved.compile.prompt).toContain("Use soft diffused daylight");
+      expect(() => secondService.saveAndCompile(design.id, {
+        expectedRevision: 0,
+        selectedModuleIds: ["purpose_amazon_listing"],
+        parameters: { width: 900 },
+        custom: {},
+      })).toThrowError(new ServiceError("STALE_REVISION", 409, "Design revision is stale"));
+      expect(secondService.getDesign(design.id)).toMatchObject({ revision: 1, parameters: { width: 1200 } });
+    } finally {
+      secondService.close();
+    }
+  });
+
+  it("rejects hard-constraint versions without inserting a row", () => {
+    const project = service.createProject({ name: "Hard gate" });
+    service.upsertProductProfile(project.id, { facts });
+    const design = service.createDesign(project.id, {
+      name: "Invalid back view",
+      selectedModuleIds: ["camera_back_view"],
+      parameters: {},
+      custom: {},
+    });
+
+    expect(() => service.saveVersion(design.id))
+      .toThrowError(new ServiceError("HARD_CONSTRAINTS", 422, "Design has hard constraint errors"));
+    expect(service.listVersions(design.id)).toEqual([]);
   });
 
   it("seeds builtins and refuses to mutate them", () => {
@@ -270,7 +318,7 @@ describe("PromptBuilderService persistence", () => {
       custom: {},
     });
     const original = service.saveVersion(design.id);
-    service.autosaveDesign(design.id, { parameters: { width: 2000 } });
+    service.autosaveDesign(design.id, { parameters: { width: 2000 } }, design.revision);
 
     const restored = service.restoreVersion(design.id, original.id);
 
@@ -281,6 +329,33 @@ describe("PromptBuilderService persistence", () => {
       restored.id,
       original.id,
     ]);
+  });
+
+  it("rejects restoring a legacy version that contains hard errors", () => {
+    const project = service.createProject({ name: "Legacy hard error" });
+    service.upsertProductProfile(project.id, { facts });
+    const design = service.createDesign(project.id, { name: "Legacy", selectedModuleIds: ["purpose_amazon_listing"] });
+    const original = service.saveVersion(design.id);
+    const injector = new BetterSqlite3(databasePath);
+    injector.prepare("UPDATE prompt_versions SET compile_snapshot_json = ? WHERE id = ?").run(JSON.stringify({
+      ...original.compileSnapshot,
+      errors: [{ code: "LEGACY_HARD_ERROR", message: "invalid legacy snapshot", moduleIds: [] }],
+    }), original.id);
+    injector.close();
+
+    expect(() => service.restoreVersion(design.id, original.id)).toThrowError(expect.objectContaining({ code: "HARD_CONSTRAINTS" }));
+    expect(service.listVersions(design.id)).toHaveLength(1);
+  });
+
+  it("rejects a polish saved against a stale design revision", () => {
+    const project = service.createProject({ name: "Concurrent polish" });
+    service.upsertProductProfile(project.id, { facts });
+    const design = service.createDesign(project.id, { name: "Polish", selectedModuleIds: ["purpose_amazon_listing"] });
+    service.autosaveDesign(design.id, { parameters: { width: 1600 } }, design.revision);
+
+    expect(() => service.savePolishedVersion(design.id, "polished", design.revision, service.compile(design.id).prompt))
+      .toThrowError(expect.objectContaining({ code: "STALE_REVISION" }));
+    expect(service.listVersions(design.id)).toHaveLength(0);
   });
 
   it("updates a profile without inserting, replacing, or deleting legacy reference rows", () => {
@@ -331,7 +406,7 @@ describe("PromptBuilderService persistence", () => {
       custom: {},
     });
     const original = service.saveVersion(design.id);
-    service.autosaveDesign(design.id, { parameters: { width: 2000 } });
+    service.autosaveDesign(design.id, { parameters: { width: 2000 } }, design.revision);
     const injector = new BetterSqlite3(databasePath);
     injector.exec(`CREATE TRIGGER fail_restore_version
       BEFORE INSERT ON prompt_versions BEGIN SELECT RAISE(ABORT, 'injected restore failure'); END`);

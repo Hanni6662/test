@@ -49,12 +49,15 @@ export function describeCompile(compile: CompileLike): string {
 
 export function createDebouncer<T>(callback: (value: T) => void, delay: number) {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let pending: T | undefined;
   return {
     schedule(value: T) {
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => { timer = undefined; callback(value); }, delay);
+      pending = value;
+      timer = setTimeout(() => { timer = undefined; const value = pending; pending = undefined; if (value !== undefined) callback(value); }, delay);
     },
-    cancel() { if (timer) clearTimeout(timer); timer = undefined; },
+    cancel() { if (timer) clearTimeout(timer); timer = undefined; pending = undefined; },
+    flush() { if (timer) clearTimeout(timer); timer = undefined; const value = pending; pending = undefined; if (value !== undefined) callback(value); },
   };
 }
 
@@ -75,6 +78,19 @@ function sensitiveKey(key: string): boolean {
 
 export function shouldAcceptCompile(responseRevision: number, currentRevision: number): boolean {
   return responseRevision === currentRevision;
+}
+
+export function isCompileContextCurrent(
+  envelope: { designId: string; revision: number },
+  context: { designId: string; expectedRevision: number; localRevision: number; responseLocalRevision: number },
+): boolean {
+  return envelope.designId === context.designId
+    && envelope.revision === context.expectedRevision + 1
+    && context.responseLocalRevision === context.localRevision;
+}
+
+export function isNavigationRequestCurrent(request: number, currentRequest: number, requestedDesignId: string, activeDesignId: string | null): boolean {
+  return request === currentRequest && requestedDesignId === activeDesignId;
 }
 
 type ParameterModule = {

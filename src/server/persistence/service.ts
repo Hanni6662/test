@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import BetterSqlite3 from "better-sqlite3";
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { z } from "zod";
 import { compilePrompt } from "@/domain/prompt-compiler";
@@ -71,6 +71,9 @@ export const designPatchSchema = z.object({
   parameters: jsonObjectSchema.optional(),
   custom: jsonObjectSchema.optional(),
 });
+export const designSaveAndCompileSchema = designPatchSchema.extend({
+  expectedRevision: z.number().int().nonnegative(),
+});
 const compileIssueSchema = z.object({
   code: z.string(),
   message: z.string(),
@@ -88,7 +91,7 @@ const storedModuleSchema = z.object({
   definition: promptModuleDefinitionSchema,
 });
 const productSnapshotSchema = productProfileSchema;
-const designSnapshotSchema = designCreateSchema.extend({ id: z.string(), projectId: z.string() });
+const designSnapshotSchema = designCreateSchema.extend({ id: z.string(), projectId: z.string(), revision: z.number().int().nonnegative().default(0) });
 
 export type ReferenceImage = z.infer<typeof referenceImageSchema>;
 export type ProductProfile = z.infer<typeof productProfileSchema>;
@@ -103,6 +106,12 @@ export type AiCandidate = z.infer<typeof aiCandidateSchema>;
 export type DesignSnapshot = z.infer<typeof designSnapshotSchema>;
 export type StoredModule = z.infer<typeof storedModuleSchema> & { id: string; enabled: boolean };
 export type ModuleVersionSnapshot = z.infer<typeof storedModuleSchema>;
+export interface SaveAndCompileResult {
+  designId: string;
+  revision: number;
+  design: DesignSnapshot;
+  compile: CompileResult;
+}
 
 export interface Project {
   id: string;
@@ -226,6 +235,7 @@ export class PromptBuilderService {
     ];
     for (const [name, definition] of additions) if (!imageColumns.has(name)) this.sqlite.exec(`ALTER TABLE reference_images ADD COLUMN ${name} ${definition}`);
     if (!columns("product_profiles").has("ai_candidates_json")) this.sqlite.exec("ALTER TABLE product_profiles ADD COLUMN ai_candidates_json TEXT NOT NULL DEFAULT '[]'");
+    if (!columns("image_designs").has("revision")) this.sqlite.exec("ALTER TABLE image_designs ADD COLUMN revision INTEGER NOT NULL DEFAULT 0");
   }
 
   close(): void {
@@ -539,6 +549,7 @@ export class PromptBuilderService {
       selectedModuleIdsJson: JSON.stringify(parsed.selectedModuleIds),
       parametersJson: JSON.stringify(parsed.parameters),
       customJson: JSON.stringify(parsed.custom),
+      revision: 0,
       createdAt: timestamp,
       updatedAt: timestamp,
     }).run();
@@ -555,6 +566,7 @@ export class PromptBuilderService {
       selectedModuleIds: JSON.parse(row.selectedModuleIdsJson),
       parameters: JSON.parse(row.parametersJson),
       custom: JSON.parse(row.customJson),
+      revision: row.revision,
     });
   }
 
@@ -564,24 +576,47 @@ export class PromptBuilderService {
       .where(eq(imageDesigns.projectId, projectId)).all().map(({ id }) => this.getDesign(id));
   }
 
-  autosaveDesign(id: string, patch: z.input<typeof designPatchSchema>): DesignSnapshot {
+  private updateDesignWithCas(id: string, patch: z.input<typeof designPatchSchema>, expectedRevision: number): DesignSnapshot {
     const current = this.getDesign(id);
     const parsed = designPatchSchema.parse(patch);
-    this.db.update(imageDesigns).set({
+    const updated = this.db.update(imageDesigns).set({
       name: parsed.name ?? current.name,
       selectedModuleIdsJson: JSON.stringify(parsed.selectedModuleIds ?? current.selectedModuleIds),
       parametersJson: JSON.stringify(parsed.parameters ?? current.parameters),
       customJson: JSON.stringify(parsed.custom ?? current.custom),
+      revision: expectedRevision + 1,
       updatedAt: now(),
-    }).where(eq(imageDesigns.id, id)).run();
+    }).where(and(eq(imageDesigns.id, id), eq(imageDesigns.revision, expectedRevision))).run();
+    if (updated.changes !== 1) throw new ServiceError("STALE_REVISION", 409, "Design revision is stale");
     return this.getDesign(id);
   }
 
+  autosaveDesign(id: string, patch: z.input<typeof designPatchSchema>, expectedRevision: number): DesignSnapshot {
+    return this.atomic(() => this.updateDesignWithCas(id, patch, expectedRevision));
+  }
+
+  saveAndCompile(id: string, input: z.input<typeof designSaveAndCompileSchema>): SaveAndCompileResult {
+    const parsed = designSaveAndCompileSchema.parse(input);
+    const { expectedRevision, ...patch } = parsed;
+    return this.atomic(() => {
+      const design = this.updateDesignWithCas(id, patch, expectedRevision);
+      const profile = this.getProductProfile(design.projectId);
+      const modules = this.listModules().map(({ kind, version, definition }) => ({ kind, version, definition }));
+      return { designId: design.id, revision: design.revision, design, compile: this.compileSnapshots(design, profile, modules) };
+    });
+  }
+
   compile(id: string): CompileResult {
-    const design = this.getDesign(id);
-    const profile = this.getProductProfile(design.projectId);
-    const modules = this.listModules().map(({ kind, version, definition }) => ({ kind, version, definition }));
-    return this.compileSnapshots(design, profile, modules);
+    return this.compileEnvelope(id).compile;
+  }
+
+  compileEnvelope(id: string): SaveAndCompileResult {
+    return this.atomic(() => {
+      const design = this.getDesign(id);
+      const profile = this.getProductProfile(design.projectId);
+      const modules = this.listModules().map(({ kind, version, definition }) => ({ kind, version, definition }));
+      return { designId: design.id, revision: design.revision, design, compile: this.compileSnapshots(design, profile, modules) };
+    });
   }
 
   private compileSnapshots(
@@ -613,6 +648,7 @@ export class PromptBuilderService {
         .filter((module) => selected.has(module.definition.id))
         .map(({ kind, version, definition }) => ({ kind, version, definition }));
       const compileSnapshot = this.compileSnapshots(design, product, modules);
+      if (compileSnapshot.errors.length) throw new ServiceError("HARD_CONSTRAINTS", 422, "Design has hard constraint errors");
       const latest = this.db.select().from(promptVersions).where(eq(promptVersions.designId, designId))
         .orderBy(desc(promptVersions.versionNumber)).get();
       return this.insertVersion({
@@ -627,6 +663,7 @@ export class PromptBuilderService {
   }
 
   private insertVersion(input: Omit<PromptVersion, "id" | "compilerVersion" | "createdAt">): PromptVersion {
+    if (input.compileSnapshot.errors.length) throw new ServiceError("HARD_CONSTRAINTS", 422, "Design has hard constraint errors");
     const id = randomUUID();
     const createdAt = now();
     this.db.insert(promptVersions).values({
@@ -673,21 +710,51 @@ export class PromptBuilderService {
       if (source.designId !== designId) {
         throw new ServiceError("VERSION_NOT_FOUND", 404, "Version not found for design");
       }
-      this.autosaveDesign(designId, {
+      const current = this.getDesign(designId);
+      const restoredDesign = this.updateDesignWithCas(designId, {
         name: source.designSnapshot.name,
         selectedModuleIds: source.designSnapshot.selectedModuleIds,
         parameters: source.designSnapshot.parameters,
         custom: source.designSnapshot.custom,
-      });
+      }, current.revision);
       const latest = this.listVersions(designId)[0];
       return this.insertVersion({
         designId,
         versionNumber: (latest?.versionNumber ?? 0) + 1,
         productSnapshot: source.productSnapshot,
         moduleSnapshot: source.moduleSnapshot,
-        designSnapshot: { ...source.designSnapshot, id: designId },
+        designSnapshot: restoredDesign,
         compileSnapshot: source.compileSnapshot,
       });
+    });
+  }
+
+  savePolishedVersion(designId: string, polishedPrompt: string, expectedRevision: number, basePrompt: string) {
+    return this.atomic(() => {
+      const current = this.getDesign(designId);
+      const product = this.getProductProfile(current.projectId);
+      const selected = new Set(current.selectedModuleIds);
+      const modules = this.listModules()
+        .filter((module) => selected.has(module.definition.id))
+        .map(({ kind, version, definition }) => ({ kind, version, definition }));
+      if (current.revision !== expectedRevision || this.compileSnapshots(current, product, modules).prompt !== basePrompt) {
+        throw new ServiceError("STALE_REVISION", 409, "Design or compile context changed during AI polish");
+      }
+      const design = this.updateDesignWithCas(designId, {
+        custom: { ...current.custom, aiPolishedPrompt: polishedPrompt },
+      }, expectedRevision);
+      const compile = this.compileSnapshots(design, product, modules);
+      const latest = this.db.select().from(promptVersions).where(eq(promptVersions.designId, designId))
+        .orderBy(desc(promptVersions.versionNumber)).get();
+      const version = this.insertVersion({
+        designId,
+        versionNumber: (latest?.versionNumber ?? 0) + 1,
+        productSnapshot: product,
+        moduleSnapshot: modules,
+        designSnapshot: design,
+        compileSnapshot: compile,
+      });
+      return { designId, revision: design.revision, design, compile, version };
     });
   }
 

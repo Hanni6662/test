@@ -6,6 +6,15 @@ test("no-AI project workflow reaches save, export, diff and restore", async ({ p
   await expect(page.getByRole("heading", { name: "项目", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "新建项目" }).click();
   await expect(page.getByRole("dialog", { name: "新建项目" })).toHaveAttribute("aria-modal", "true");
+  const projectName = page.getByLabel("项目名称");
+  await expect(projectName).toBeFocused();
+  await projectName.fill("暂存名称");
+  await projectName.press("Shift+Tab");
+  await expect(page.getByRole("button", { name: "创建并打开" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "新建项目" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "新建项目" })).toBeFocused();
+  await page.getByRole("button", { name: "新建项目" }).click();
   await page.getByLabel("项目名称").fill("夏日童装");
   await page.getByRole("button", { name: "创建并打开" }).click();
 
@@ -22,6 +31,18 @@ test("no-AI project workflow reaches save, export, diff and restore", async ({ p
   await page.getByLabel("已验证特征").fill("荷叶袖, 收腰");
   await page.getByRole("button", { name: "保存人工档案" }).click();
   await expect(page.getByText("产品档案已保存")).toBeVisible();
+  const projectsResponse = await page.request.get("/api/projects");
+  const [createdProject] = await projectsResponse.json();
+  await page.request.post(`/api/projects/${createdProject.id}/product-profile`, { data: { facts: {
+    title: "同步后的女童夏日连衣裙", category: "儿童连衣裙", audience: "4-8 岁女童", material: "100% 棉",
+    colors: ["珊瑚粉", "米白"], features: ["荷叶袖", "收腰"], backViewEvidence: false,
+  } } });
+  await uploadInput.setInputFiles({
+    name: "sync.png", mimeType: "image/png",
+    buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64"),
+  });
+  await expect(page.getByText("参考图已上传")).toBeVisible();
+  await expect(page.getByLabel("产品标题")).toHaveValue("同步后的女童夏日连衣裙");
   await page.getByRole("button", { name: "AI 分类" }).click();
   await expect(page.getByText("未配置 AI，仍可继续人工编辑")).toBeVisible();
 
@@ -95,6 +116,7 @@ test("module management separates builtins and custom modules", async ({ page })
   await page.getByLabel("导出参数键").fill("width, metadata, quality");
   await page.getByLabel("模块内容").fill("Custom listing direction for e2e.");
   await page.getByRole("button", { name: "保存模块" }).click();
+  await expect(page.getByText("自定义模块已保存")).toBeVisible();
   await page.getByRole("button", { name: `编辑 ${moduleLabel}` }).click();
   await expect(page.getByLabel("导出参数键")).toHaveValue("width, metadata, quality");
   await page.getByRole("button", { name: "关闭" }).click();

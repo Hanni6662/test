@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { canExportCompile, createDebouncer, declaredParameterKeys, describeCompile, diffVersions, imageClassificationOptions, parseExportableParameterKeys, parseParameterValue, reconcileDeclaredParameters, safeDraftExport, shouldAcceptCompile } from "./workbench";
+import { canExportCompile, createDebouncer, declaredParameterKeys, describeCompile, diffVersions, imageClassificationOptions, isCompileContextCurrent, isNavigationRequestCurrent, parseExportableParameterKeys, parseParameterValue, reconcileDeclaredParameters, safeDraftExport, shouldAcceptCompile } from "./workbench";
 
 describe("workbench helpers", () => {
   afterEach(() => vi.useRealTimers());
@@ -42,6 +42,17 @@ describe("workbench helpers", () => {
     expect(calls).toEqual(["latest"]);
   });
 
+  it("flushes the latest debounced value before navigation", () => {
+    vi.useFakeTimers();
+    const calls: string[] = [];
+    const debounced = createDebouncer((value: string) => calls.push(value), 300);
+    debounced.schedule("latest");
+    debounced.flush();
+    expect(calls).toEqual(["latest"]);
+    vi.advanceTimersByTime(300);
+    expect(calls).toEqual(["latest"]);
+  });
+
   it("closes the hard gate while compile is pending or has errors", () => {
     expect(canExportCompile(null)).toBe(false);
     expect(canExportCompile({ errors: [{ code: "X" }], warnings: [] })).toBe(false);
@@ -69,6 +80,20 @@ describe("workbench helpers", () => {
   it("accepts compile responses only for the latest edit revision", () => {
     expect(shouldAcceptCompile(4, 4)).toBe(true);
     expect(shouldAcceptCompile(3, 4)).toBe(false);
+  });
+
+  it("accepts compile only for the active design, expected server revision, and latest local edit", () => {
+    const active = { designId: "design-a", expectedRevision: 3, localRevision: 8 };
+    expect(isCompileContextCurrent({ designId: "design-a", revision: 4 }, { ...active, responseLocalRevision: 8 })).toBe(true);
+    expect(isCompileContextCurrent({ designId: "design-b", revision: 4 }, { ...active, responseLocalRevision: 8 })).toBe(false);
+    expect(isCompileContextCurrent({ designId: "design-a", revision: 3 }, { ...active, responseLocalRevision: 8 })).toBe(false);
+    expect(isCompileContextCurrent({ designId: "design-a", revision: 4 }, { ...active, responseLocalRevision: 7 })).toBe(false);
+  });
+
+  it("rejects an async navigation response after a newer navigation starts", () => {
+    expect(isNavigationRequestCurrent(4, 4, "design-a", "design-a")).toBe(true);
+    expect(isNavigationRequestCurrent(3, 4, "design-a", "design-a")).toBe(false);
+    expect(isNavigationRequestCurrent(4, 4, "design-a", "design-b")).toBe(false);
   });
 
   it("lists only parameters declared by selected modules and removes undeclared values", () => {
