@@ -45,6 +45,11 @@ export const moduleIdSchema = z.string().regex(
   "Module IDs must be 3-64 lowercase ASCII letters, digits, or underscores",
 );
 
+export const moduleParameterKeySchema = z.string().regex(
+  /^[a-z][a-zA-Z0-9_]{0,63}$/,
+  "Module parameter keys must be 1-64 ASCII alphanumeric characters or underscores",
+);
+
 export const productFactsSchema = z.object({
   title: normalizedText(200),
   category: normalizedText(120),
@@ -63,6 +68,9 @@ export const promptModuleDefinitionSchema = z.object({
   category: moduleCategorySchema,
   content: normalizedText(2000),
   capabilities: z.array(moduleCapabilitySchema).max(moduleCapabilities.length).default([]),
+  exportableParameterKeys: z.array(moduleParameterKeySchema).max(50)
+    .refine((keys) => new Set(keys).size === keys.length, "Exportable parameter keys must be unique")
+    .default([]),
 });
 
 export interface PromptModuleDefinition {
@@ -71,6 +79,7 @@ export interface PromptModuleDefinition {
   readonly category: ModuleCategory;
   readonly content: string;
   readonly capabilities?: readonly ModuleCapability[];
+  readonly exportableParameterKeys?: readonly string[];
 }
 
 export const imageDesignSnapshotSchema = z.object({

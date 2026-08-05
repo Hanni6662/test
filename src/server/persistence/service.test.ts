@@ -1,6 +1,8 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createRequire } from "node:module";
+import { Worker } from "node:worker_threads";
 import BetterSqlite3 from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ProductFacts } from "@/domain/types";
@@ -67,6 +69,27 @@ describe("PromptBuilderService persistence", () => {
     expect(() =>
       service.updateCustomModule(builtin!.id, { content: "tampered" }),
     ).toThrowError(new ServiceError("BUILTIN_IMMUTABLE", 409, "Builtin modules cannot be modified"));
+  });
+
+  it("refreshes persisted builtin definitions when their export contract version changes", () => {
+    const staleDefinition = {
+      id: "output_amazon_listing",
+      label: "Stale output",
+      category: "output",
+      content: "Stale output content.",
+      capabilities: [],
+    };
+    const editor = new BetterSqlite3(databasePath);
+    editor.prepare("UPDATE prompt_modules SET definition_json = ?, version = 1 WHERE id = ?")
+      .run(JSON.stringify(staleDefinition), staleDefinition.id);
+    editor.close();
+    service.close();
+    service = createPromptBuilderService(databasePath);
+
+    const refreshed = service.listModules().find((promptModule) => promptModule.id === staleDefinition.id);
+    expect(refreshed?.version).toBe(2);
+    expect(refreshed?.definition.exportableParameterKeys).toEqual(["width", "metadata"]);
+    expect(refreshed?.definition.label).toBe("Amazon listing specification");
   });
 
   it("supports the full custom-module lifecycle and cloning a builtin", () => {
@@ -252,6 +275,47 @@ describe("PromptBuilderService persistence", () => {
     }
   });
 
+  it("waits for a real competing write lock before allocating cross-connection versions", async () => {
+    const project = service.createProject({ name: "Locked versions" });
+    service.upsertProductProfile(project.id, { facts, referenceImages: [] });
+    const design = service.createDesign(project.id, {
+      name: "Locked design",
+      selectedModuleIds: ["purpose_amazon_listing"],
+      parameters: {},
+      custom: {},
+    });
+    const modulePath = createRequire(import.meta.url).resolve("better-sqlite3");
+    const locker = new Worker(`
+      const { parentPort, workerData } = require("node:worker_threads");
+      const Database = require(workerData.modulePath);
+      const db = new Database(workerData.databasePath);
+      db.exec("BEGIN IMMEDIATE");
+      parentPort.postMessage("locked");
+      setTimeout(() => {
+        db.exec("COMMIT");
+        db.close();
+        parentPort.postMessage("released");
+      }, 250);
+    `, { eval: true, workerData: { databasePath, modulePath } });
+    await new Promise<void>((resolve, reject) => {
+      locker.once("message", () => resolve());
+      locker.once("error", reject);
+    });
+    const startedAt = Date.now();
+
+    const first = service.saveVersion(design.id);
+    const waitedMs = Date.now() - startedAt;
+    const secondService = createPromptBuilderService(databasePath);
+    try {
+      const second = secondService.saveVersion(design.id);
+      expect(waitedMs).toBeGreaterThanOrEqual(150);
+      expect([first.versionNumber, second.versionNumber]).toEqual([1, 2]);
+    } finally {
+      secondService.close();
+      await locker.terminate();
+    }
+  });
+
   it("exports a stable, safe versioned JSON document", () => {
     const project = service.createProject({ name: "Export" });
     service.upsertProductProfile(project.id, {
@@ -260,9 +324,19 @@ describe("PromptBuilderService persistence", () => {
     });
     const design = service.createDesign(project.id, {
       name: "Export design",
-      selectedModuleIds: ["purpose_amazon_listing"],
+      selectedModuleIds: ["purpose_amazon_listing", "output_amazon_listing"],
       parameters: {
         width: 1024,
+        rogueSetting: "must-not-export",
+        authHeader: "auth-header-value",
+        bearerCredential: "bearer-credential-value",
+        sessionId: "session-id-value",
+        cookieJar: "cookie-jar-value",
+        metadata: {
+          tokenCount: 37,
+          authHeader: "nested-auth-header",
+          entries: [{ bearerCredential: "nested-bearer", label: "safe entry" }],
+        },
         apiKey: "must-not-export",
         clientSecret: "client-secret-value",
         authorizationHeader: "bearer secret",
@@ -280,7 +354,10 @@ describe("PromptBuilderService persistence", () => {
         },
       },
       custom: {
-        headline: "Summer",
+        purpose: "Summer",
+        lighting: "Soft daylight",
+        headline: "must be removed",
+        output: 42,
         credentials: [{ client_secret: "custom-client-secret", caption: "safe caption" }],
       },
     });
@@ -295,17 +372,14 @@ describe("PromptBuilderService persistence", () => {
       referenceImageIdentifiers: ["sha256:front"],
       parameters: {
         width: 1024,
-        nested: {
+        metadata: {
           tokenCount: 37,
-          entries: [
-            { label: "safe entry" },
-            { retryCount: 2 },
-          ],
+          entries: [{ label: "safe entry" }],
         },
       },
       custom: {
-        headline: "Summer",
-        credentials: [{ caption: "safe caption" }],
+        purpose: "Summer",
+        lighting: "Soft daylight",
       },
       compilerVersion: "1.0.0",
     });
@@ -324,6 +398,14 @@ describe("PromptBuilderService persistence", () => {
     expect(json).not.toContain("password-hash-value");
     expect(json).not.toContain("secret-value");
     expect(json).not.toContain("session-cookie-value");
+    expect(json).not.toContain("rogueSetting");
+    expect(json).not.toContain("auth-header-value");
+    expect(json).not.toContain("bearer-credential-value");
+    expect(json).not.toContain("session-id-value");
+    expect(json).not.toContain("cookie-jar-value");
+    expect(json).not.toContain("nested-auth-header");
+    expect(json).not.toContain("nested-bearer");
+    expect(json).not.toContain("must be removed");
     expect(json).toContain("tokenCount");
     expect(json).not.toContain("imageData");
   });

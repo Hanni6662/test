@@ -127,4 +127,27 @@ describe("API error boundary", () => {
       error: { code: "INTERNAL_ERROR", message: "An unexpected error occurred" },
     });
   });
+
+  it("rejects duplicate selected module IDs for both design create and patch", async () => {
+    const duplicateIds = ["purpose_amazon_listing", "purpose_amazon_listing"];
+    const { POST } = await import("./projects/[id]/designs/route");
+    const createResponse = await POST(new Request("http://localhost/api/projects/missing/designs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Duplicate IDs", selectedModuleIds: duplicateIds }),
+    }), { params: Promise.resolve({ id: "missing" }) });
+    const { PATCH } = await import("./designs/[id]/route");
+    const patchResponse = await PATCH(new Request("http://localhost/api/designs/missing", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ selectedModuleIds: duplicateIds }),
+    }), { params: Promise.resolve({ id: "missing" }) });
+
+    for (const response of [createResponse, patchResponse]) {
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error.code).toBe("INVALID_INPUT");
+      expect(body.error.issues[0]?.message).toBe("Selected module IDs must be unique");
+    }
+  });
 });

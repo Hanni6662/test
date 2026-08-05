@@ -2,16 +2,18 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import BetterSqlite3 from "better-sqlite3";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { z } from "zod";
 import { compilePrompt } from "@/domain/prompt-compiler";
 import { seedPromptModules } from "@/domain/seed-modules";
 import {
   moduleIdSchema,
+  moduleCategories,
   productFactsSchema,
   promptModuleDefinitionSchema,
   type CompileResult,
+  type ModuleCategory,
   type ProductFacts,
   type PromptModuleDefinition,
 } from "@/domain/types";
@@ -25,6 +27,7 @@ import {
 } from "./schema";
 
 export const COMPILER_VERSION = "1.0.0";
+const BUILTIN_MODULE_VERSION = 2;
 
 const nameSchema = z.string().trim().min(1).max(200);
 const referenceImageSchema = z.object({
@@ -40,13 +43,13 @@ const selectedModuleIdsSchema = z.array(moduleIdSchema).max(200).refine(
   (ids) => new Set(ids).size === ids.length,
   "Selected module IDs must be unique",
 );
-const designCreateSchema = z.object({
+export const designCreateSchema = z.object({
   name: nameSchema,
   selectedModuleIds: selectedModuleIdsSchema.default([]),
   parameters: jsonObjectSchema.default({}),
   custom: jsonObjectSchema.default({}),
 });
-const designPatchSchema = z.object({
+export const designPatchSchema = z.object({
   name: nameSchema.optional(),
   selectedModuleIds: selectedModuleIdsSchema.optional(),
   parameters: jsonObjectSchema.optional(),
@@ -102,7 +105,7 @@ export interface VersionExport {
   referenceImageIdentifiers: string[];
   modules: ModuleVersionSnapshot[];
   parameters: Record<string, z.infer<typeof z.json>>;
-  custom: Record<string, z.infer<typeof z.json>>;
+  custom: Partial<Record<ModuleCategory, string>>;
   compile: CompileResult;
   errors: CompileResult["errors"];
   warnings: CompileResult["warnings"];
@@ -129,14 +132,21 @@ function parseJson<T>(value: string, schema: z.ZodType<T>): T {
   return schema.parse(JSON.parse(value));
 }
 
-function safeParameters(value: Record<string, z.infer<typeof z.json>>): Record<string, z.infer<typeof z.json>> {
+function safeParameters(
+  value: Record<string, z.infer<typeof z.json>>,
+  allowedKeys: ReadonlySet<string>,
+): Record<string, z.infer<typeof z.json>> {
   const isSensitiveKey = (key: string): boolean => {
     const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, "");
     return normalized.includes("authorization")
+      || normalized.includes("authheader")
       || normalized.includes("apikey")
+      || normalized.includes("bearercredential")
       || normalized.includes("privatekey")
       || normalized.includes("password")
       || normalized.includes("secret")
+      || normalized.includes("sessionid")
+      || normalized.includes("cookiejar")
       || normalized.endsWith("token")
       || normalized.endsWith("cookie");
   };
@@ -151,7 +161,20 @@ function safeParameters(value: Record<string, z.infer<typeof z.json>>): Record<s
     }
     return input;
   };
-  return clean(value) as Record<string, z.infer<typeof z.json>>;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => allowedKeys.has(key) && !isSensitiveKey(key))
+      .map(([key, nested]) => [key, clean(nested)]),
+  );
+}
+
+function safeCustomDirections(
+  value: Record<string, z.infer<typeof z.json>>,
+): Partial<Record<ModuleCategory, string>> {
+  const categories = new Set<string>(moduleCategories);
+  return Object.fromEntries(
+    Object.entries(value).filter(([key, direction]) => categories.has(key) && typeof direction === "string"),
+  );
 }
 
 export class PromptBuilderService {
@@ -183,12 +206,21 @@ export class PromptBuilderService {
         id: definition.id,
         kind: "builtin" as const,
         definitionJson: JSON.stringify(definition),
-        version: 1,
+        version: BUILTIN_MODULE_VERSION,
         enabled: true,
         createdAt: timestamp,
         updatedAt: timestamp,
       })),
-    ).onConflictDoNothing().run();
+    ).onConflictDoUpdate({
+      target: promptModules.id,
+      set: {
+        kind: "builtin",
+        definitionJson: sql`excluded.definition_json`,
+        version: BUILTIN_MODULE_VERSION,
+        enabled: true,
+        updatedAt: timestamp,
+      },
+    }).run();
   }
 
   createProject(input: { name: string }): Project {
@@ -523,15 +555,33 @@ export class PromptBuilderService {
     };
     return {
       formatVersion: 1,
-      facts: productFactsSchema.parse(version.productSnapshot.facts),
+      facts: {
+        title: version.productSnapshot.facts.title,
+        category: version.productSnapshot.facts.category,
+        audience: version.productSnapshot.facts.audience,
+        material: version.productSnapshot.facts.material,
+        colors: [...version.productSnapshot.facts.colors],
+        features: [...version.productSnapshot.facts.features],
+        backViewEvidence: version.productSnapshot.facts.backViewEvidence,
+      },
       referenceImageIdentifiers: version.productSnapshot.referenceImages.map((image) => image.identifier),
       modules: version.moduleSnapshot.map(({ kind, version: moduleVersion, definition }) => ({
         kind,
         version: moduleVersion,
-        definition: promptModuleDefinitionSchema.parse(definition),
+        definition: {
+          id: definition.id,
+          label: definition.label,
+          category: definition.category,
+          content: definition.content,
+          capabilities: [...(definition.capabilities ?? [])],
+          exportableParameterKeys: [...(definition.exportableParameterKeys ?? [])],
+        },
       })),
-      parameters: safeParameters(version.designSnapshot.parameters),
-      custom: safeParameters(version.designSnapshot.custom),
+      parameters: safeParameters(
+        version.designSnapshot.parameters,
+        new Set(version.moduleSnapshot.flatMap(({ definition }) => definition.exportableParameterKeys ?? [])),
+      ),
+      custom: safeCustomDirections(version.designSnapshot.custom),
       compile,
       errors: compile.errors,
       warnings: compile.warnings,

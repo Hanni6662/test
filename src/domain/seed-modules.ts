@@ -134,6 +134,7 @@ const curatedPromptModules: PromptModuleDefinition[] = [
     label: "Amazon listing specification",
     category: "output",
     content: "Output a square 1:1 high-resolution marketplace image with the product filling about 85% of frame.",
+    exportableParameterKeys: ["width", "metadata"],
   },
   {
     id: "output_aplus_wide",
@@ -155,6 +156,9 @@ export const seedPromptModules: readonly PromptModuleDefinition[] = Object.freez
       ...module,
       ...(module.capabilities
         ? { capabilities: Object.freeze([...module.capabilities]) }
+        : {}),
+      ...(module.exportableParameterKeys
+        ? { exportableParameterKeys: Object.freeze([...module.exportableParameterKeys]) }
         : {}),
     }),
   ),

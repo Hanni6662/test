@@ -49,5 +49,10 @@ describe("seedPromptModules", () => {
         (module) => !module.capabilities || Object.isFrozen(module.capabilities),
       ),
     ).toBe(true);
+    expect(
+      seedPromptModules.every(
+        (module) => !module.exportableParameterKeys || Object.isFrozen(module.exportableParameterKeys),
+      ),
+    ).toBe(true);
   });
 });
