@@ -482,6 +482,66 @@ describe("PromptBuilderService persistence", () => {
     expect(changed.polishedPrompt).toBeNull();
   });
 
+  it("clears accepted polish when product facts or a selected custom module changes", () => {
+    const project = service.createProject({ name: "Polish dependencies" });
+    service.upsertProductProfile(project.id, { facts });
+    const customModule = service.createCustomModule({
+      id: "custom_polish_dependency",
+      label: "Polish dependency",
+      category: "lighting",
+      content: "Use gentle daylight.",
+      contentZh: "使用柔和日光。",
+      capabilities: [],
+    });
+    const design = service.createDesign(project.id, {
+      name: "Dependency design",
+      selectedModuleIds: [customModule.id],
+    });
+    const firstCompile = service.compileEnvelope(design.id);
+    const firstPolish = service.savePolishedVersion(
+      design.id,
+      `${firstCompile.compile.prompt}\nFirst polish.`,
+      firstCompile.revision,
+      firstCompile.compile.prompt,
+    );
+
+    service.upsertProductProfile(project.id, { facts: { ...facts, title: "Changed title" } });
+    expect(service.getDesign(design.id).polishedPrompt).toBeNull();
+
+    const secondCompile = service.compileEnvelope(design.id);
+    service.savePolishedVersion(
+      design.id,
+      `${secondCompile.compile.prompt}\nSecond polish.`,
+      firstPolish.revision,
+      secondCompile.compile.prompt,
+    );
+    service.updateCustomModule(customModule.id, { content: "Use crisp studio light." });
+    expect(service.getDesign(design.id).polishedPrompt).toBeNull();
+  });
+
+  it("does not restore polish when current product or module dependencies changed", () => {
+    const project = service.createProject({ name: "Restore dependency mismatch" });
+    service.upsertProductProfile(project.id, { facts });
+    const design = service.createDesign(project.id, {
+      name: "Restore dependency mismatch",
+      selectedModuleIds: ["purpose_amazon_listing"],
+    });
+    const compiled = service.compileEnvelope(design.id);
+    const source = service.savePolishedVersion(
+      design.id,
+      `${compiled.compile.prompt}\nSource polish.`,
+      compiled.revision,
+      compiled.compile.prompt,
+    ).version;
+    service.upsertProductProfile(project.id, { facts: { ...facts, title: "Current changed title" } });
+
+    const restored = service.restoreVersion(design.id, source.id);
+
+    expect(restored.polishedPrompt).toBeNull();
+    expect(restored.designSnapshot.polishedPrompt).toBeNull();
+    expect(service.getDesign(design.id).polishedPrompt).toBeNull();
+  });
+
   it("updates a profile without inserting, replacing, or deleting legacy reference rows", () => {
     const project = service.createProject({ name: "Profile rollback" });
     service.upsertProductProfile(project.id, {

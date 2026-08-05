@@ -40,6 +40,11 @@ const preferredVersionPrompt = (version: { polishedPrompt: string | null; compil
     preferredVersionPrompt(version: { polishedPrompt: string | null; compileSnapshot: { prompt: string } }): string;
   }).preferredVersionPrompt(version);
 
+const updateModuleEnglishContent = (module: { content: string; contentZh: string }, content: string) =>
+  (workbenchModule as unknown as {
+    updateModuleEnglishContent<T extends { content: string; contentZh: string }>(module: T, content: string): T;
+  }).updateModuleEnglishContent(module, content);
+
 describe("workbench helpers", () => {
   afterEach(() => vi.useRealTimers());
 
@@ -92,6 +97,16 @@ describe("workbench helpers", () => {
     expect(copyTextForLanguage(compile, "en")).toBe("deterministic English");
     expect(preferredVersionPrompt({ polishedPrompt: "polished", compileSnapshot: compile })).toBe("polished");
     expect(preferredVersionPrompt({ polishedPrompt: null, compileSnapshot: compile })).toBe("deterministic English");
+  });
+
+  it("keeps a generated Chinese marker in sync until the user writes Chinese semantics", () => {
+    const first = updateModuleEnglishContent({ content: "", contentZh: "" }, "Custom");
+    expect(first).toEqual({ content: "Custom", contentZh: "自定义模块原文：Custom" });
+    expect(updateModuleEnglishContent(first, "Custom updated")).toEqual({
+      content: "Custom updated",
+      contentZh: "自定义模块原文：Custom updated",
+    });
+    expect(updateModuleEnglishContent({ ...first, contentZh: "人工中文语义" }, "Custom updated").contentZh).toBe("人工中文语义");
   });
 
   it("flushes the latest debounced value before navigation", () => {

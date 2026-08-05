@@ -281,6 +281,20 @@ export class PromptBuilderService {
     return this.sqlite.transaction(operation).immediate();
   }
 
+  private clearProjectPolish(projectId: string): void {
+    this.db.update(imageDesigns).set({ polishedPrompt: null })
+      .where(eq(imageDesigns.projectId, projectId)).run();
+  }
+
+  private clearPolishForSelectedModule(moduleId: string): void {
+    const affected = this.db.select({ id: imageDesigns.id, selectedModuleIdsJson: imageDesigns.selectedModuleIdsJson })
+      .from(imageDesigns).all()
+      .filter(({ selectedModuleIdsJson }) => parseJson(selectedModuleIdsJson, selectedModuleIdsSchema).includes(moduleId));
+    for (const { id } of affected) {
+      this.db.update(imageDesigns).set({ polishedPrompt: null }).where(eq(imageDesigns.id, id)).run();
+    }
+  }
+
   private seedModules(): void {
     const timestamp = now();
     this.db.insert(promptModules).values(
@@ -360,6 +374,7 @@ export class PromptBuilderService {
       const timestamp = now();
       const currentProfile = this.db.select().from(productProfiles).where(eq(productProfiles.projectId, projectId)).get();
       const candidatesJson = currentProfile?.aiCandidatesJson ?? "[]";
+      const factsChanged = currentProfile !== undefined && currentProfile.factsJson !== JSON.stringify(profile.facts);
       this.db.insert(productProfiles).values({
         projectId,
         factsJson: JSON.stringify(profile.facts),
@@ -369,6 +384,7 @@ export class PromptBuilderService {
         target: productProfiles.projectId,
         set: { factsJson: JSON.stringify(profile.facts), aiCandidatesJson: candidatesJson, updatedAt: timestamp },
       }).run();
+      if (factsChanged) this.clearProjectPolish(projectId);
       return this.getProductProfile(projectId);
     });
   }
@@ -468,18 +484,21 @@ export class PromptBuilderService {
   }
 
   confirmProductCandidates(projectId: string, input: { candidateIds: string[]; removeCandidateIds?: string[]; edits?: Partial<ProductFacts> }): ProductProfile {
-    const profile = this.getProductProfile(projectId);
-    const selected = new Set(input.candidateIds);
-    const removed = new Set(input.removeCandidateIds ?? []);
-    const available = new Set((profile.aiCandidates ?? []).map((candidate) => candidate.id));
-    if ([...selected, ...removed].some((id) => !available.has(id))) throw new ServiceError("CANDIDATE_NOT_FOUND", 400, "Candidate not found for project");
-    const next: Record<string, unknown> = { ...profile.facts };
-    for (const candidate of profile.aiCandidates ?? []) if (selected.has(candidate.id)) next[candidate.field] = candidate.value;
-    Object.assign(next, input.edits ?? {});
-    const confirmed = productFactsSchema.parse(next);
-    const remaining = (profile.aiCandidates ?? []).filter((candidate) => !selected.has(candidate.id) && !removed.has(candidate.id));
-    this.db.update(productProfiles).set({ factsJson: JSON.stringify(confirmed), aiCandidatesJson: JSON.stringify(remaining), updatedAt: now() }).where(eq(productProfiles.projectId, projectId)).run();
-    return this.getProductProfile(projectId);
+    return this.atomic(() => {
+      const profile = this.getProductProfile(projectId);
+      const selected = new Set(input.candidateIds);
+      const removed = new Set(input.removeCandidateIds ?? []);
+      const available = new Set((profile.aiCandidates ?? []).map((candidate) => candidate.id));
+      if ([...selected, ...removed].some((id) => !available.has(id))) throw new ServiceError("CANDIDATE_NOT_FOUND", 400, "Candidate not found for project");
+      const next: Record<string, unknown> = { ...profile.facts };
+      for (const candidate of profile.aiCandidates ?? []) if (selected.has(candidate.id)) next[candidate.field] = candidate.value;
+      Object.assign(next, input.edits ?? {});
+      const confirmed = productFactsSchema.parse(next);
+      const remaining = (profile.aiCandidates ?? []).filter((candidate) => !selected.has(candidate.id) && !removed.has(candidate.id));
+      this.db.update(productProfiles).set({ factsJson: JSON.stringify(confirmed), aiCandidatesJson: JSON.stringify(remaining), updatedAt: now() }).where(eq(productProfiles.projectId, projectId)).run();
+      if (JSON.stringify(confirmed) !== JSON.stringify(profile.facts)) this.clearProjectPolish(projectId);
+      return this.getProductProfile(projectId);
+    });
   }
 
   updateAiSettings(input: { baseUrl: string; visionModel: string; textModel: string }) {
@@ -542,26 +561,32 @@ export class PromptBuilderService {
   }
 
   updateCustomModule(id: string, patch: Partial<Omit<PromptModuleDefinition, "id">>): StoredModule {
-    const current = this.getModule(id);
-    if (current.kind === "builtin") {
-      throw new ServiceError("BUILTIN_IMMUTABLE", 409, "Builtin modules cannot be modified");
-    }
-    const definition = promptModuleDefinitionSchema.parse({ ...current.definition, ...patch, id });
-    this.db.update(promptModules).set({
-      definitionJson: JSON.stringify(definition),
-      version: current.version + 1,
-      updatedAt: now(),
-    }).where(eq(promptModules.id, id)).run();
-    return this.getModule(id);
+    return this.atomic(() => {
+      const current = this.getModule(id);
+      if (current.kind === "builtin") {
+        throw new ServiceError("BUILTIN_IMMUTABLE", 409, "Builtin modules cannot be modified");
+      }
+      const definition = promptModuleDefinitionSchema.parse({ ...current.definition, ...patch, id });
+      this.db.update(promptModules).set({
+        definitionJson: JSON.stringify(definition),
+        version: current.version + 1,
+        updatedAt: now(),
+      }).where(eq(promptModules.id, id)).run();
+      if (JSON.stringify(definition) !== JSON.stringify(current.definition)) this.clearPolishForSelectedModule(id);
+      return this.getModule(id);
+    });
   }
 
   disableModule(id: string): StoredModule {
-    const current = this.getModule(id);
-    if (current.kind === "builtin") {
-      throw new ServiceError("BUILTIN_IMMUTABLE", 409, "Builtin modules cannot be modified");
-    }
-    this.db.update(promptModules).set({ enabled: false, updatedAt: now() }).where(eq(promptModules.id, id)).run();
-    return this.getModule(id);
+    return this.atomic(() => {
+      const current = this.getModule(id);
+      if (current.kind === "builtin") {
+        throw new ServiceError("BUILTIN_IMMUTABLE", 409, "Builtin modules cannot be modified");
+      }
+      this.db.update(promptModules).set({ enabled: false, updatedAt: now() }).where(eq(promptModules.id, id)).run();
+      if (current.enabled) this.clearPolishForSelectedModule(id);
+      return this.getModule(id);
+    });
   }
 
   cloneBuiltinModule(id: string, input: { id: string; label: string }): StoredModule {
@@ -775,7 +800,14 @@ export class PromptBuilderService {
         parameters: source.designSnapshot.parameters,
         custom: source.designSnapshot.custom,
       }, current.revision);
-      this.db.update(imageDesigns).set({ polishedPrompt: source.polishedPrompt })
+      const liveProduct = this.getProductProfile(restoredBase.projectId);
+      const selected = new Set(restoredBase.selectedModuleIds);
+      const liveModules = this.listModules()
+        .filter((module) => selected.has(module.definition.id))
+        .map(({ kind, version, definition }) => ({ kind, version, definition }));
+      const livePrompt = this.compileSnapshots(restoredBase, liveProduct, liveModules).prompt;
+      const restoredPolish = livePrompt === source.compileSnapshot.prompt ? source.polishedPrompt : null;
+      this.db.update(imageDesigns).set({ polishedPrompt: restoredPolish })
         .where(and(eq(imageDesigns.id, designId), eq(imageDesigns.revision, restoredBase.revision))).run();
       const restoredDesign = this.getDesign(designId);
       const latest = this.listVersions(designId)[0];
@@ -786,7 +818,7 @@ export class PromptBuilderService {
         moduleSnapshot: source.moduleSnapshot,
         designSnapshot: restoredDesign,
         compileSnapshot: source.compileSnapshot,
-        polishedPrompt: source.polishedPrompt,
+        polishedPrompt: restoredPolish,
       });
     });
   }

@@ -193,6 +193,16 @@ export function preferredVersionPrompt(version: {
   return version.polishedPrompt ?? version.compileSnapshot.prompt;
 }
 
+export function updateModuleEnglishContent<T extends { content: string; contentZh: string }>(
+  module: T,
+  content: string,
+): T {
+  const contentZh = !module.contentZh || module.contentZh.startsWith("自定义模块原文：")
+    ? `自定义模块原文：${content}`
+    : module.contentZh;
+  return { ...module, content, contentZh };
+}
+
 export function parseExportableParameterKeys(raw: string): { keys: string[]; error: string } {
   const keys = raw.split(/[,，\s]+/).map((key) => key.trim()).filter(Boolean);
   if (keys.length > 50) return { keys, error: "导出参数键最多可配置 50 个" };
