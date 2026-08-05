@@ -639,9 +639,11 @@ export class PromptBuilderService {
     }, modules.map((module) => module.definition)));
   }
 
-  saveVersion(designId: string): PromptVersion {
+  saveVersion(designId: string, expectedRevision: number): PromptVersion {
+    const parsedRevision = z.number().int().nonnegative().parse(expectedRevision);
     return this.atomic(() => {
       const design = this.getDesign(designId);
+      if (design.revision !== parsedRevision) throw new ServiceError("STALE_REVISION", 409, "Design revision is stale");
       const product = this.getProductProfile(design.projectId);
       const selected = new Set(design.selectedModuleIds);
       const modules = this.listModules()

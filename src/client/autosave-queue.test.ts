@@ -64,4 +64,46 @@ describe("latest pending autosave queue", () => {
     first.resolve();
     await expect(queue.flush()).resolves.toBeUndefined();
   });
+
+  it("does not retry or start a pending write after disposal while a stale request is in flight", async () => {
+    const stale = deferred<void>();
+    const calls: string[] = [];
+    let retries = 0;
+    const queue = createLatestPendingQueue(async (value: string) => {
+      calls.push(value);
+      if (value === "active") { await stale.promise; throw new RetryLatestSave(); }
+    }, { onRetry: async () => { retries += 1; } }) as ReturnType<typeof createLatestPendingQueue<string>> & {
+      dispose(): void;
+      flushAndDrain(): Promise<void>;
+    };
+
+    queue.enqueue("active");
+    queue.enqueue("must-not-start");
+    queue.dispose();
+    stale.resolve();
+    await queue.flushAndDrain();
+
+    expect(calls).toEqual(["active"]);
+    expect(retries).toBe(0);
+  });
+
+  it("starts a fresh lifecycle after remount without reviving the stale lifecycle retry", async () => {
+    const stale = deferred<void>();
+    const calls: string[] = [];
+    let retries = 0;
+    const queue = createLatestPendingQueue(async (value: string) => {
+      calls.push(value);
+      if (value === "stale") { await stale.promise; throw new RetryLatestSave(); }
+    }, { onRetry: async () => { retries += 1; } }) as ReturnType<typeof createLatestPendingQueue<string>> & { mount(): void };
+
+    queue.enqueue("stale");
+    queue.dispose();
+    queue.mount();
+    queue.enqueue("fresh");
+    stale.resolve();
+    await queue.flushAndDrain();
+
+    expect(calls).toEqual(["stale", "fresh"]);
+    expect(retries).toBe(0);
+  });
 });

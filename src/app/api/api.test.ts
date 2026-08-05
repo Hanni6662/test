@@ -192,9 +192,30 @@ describe("API error boundary", () => {
     expect(await stale.json()).toEqual({ error: { code: "STALE_REVISION", message: "Design revision is stale" } });
 
     const { POST } = await import("./designs/[id]/versions/route");
-    const version = await POST(new Request(`http://localhost/api/designs/${design.id}/versions`, { method: "POST" }), { params: Promise.resolve({ id: design.id }) });
+    const version = await POST(new Request(`http://localhost/api/designs/${design.id}/versions`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedRevision: 1 }) }), { params: Promise.resolve({ id: design.id }) });
     expect(version.status).toBe(422);
     expect(await version.json()).toEqual({ error: { code: "HARD_CONSTRAINTS", message: "Design has hard constraint errors" } });
     expect(service.listVersions(design.id)).toEqual([]);
+  });
+
+  it("rejects the version API when the design changes after the client compile", async () => {
+    const { getPromptBuilderService } = await import("@/server/persistence/runtime");
+    const service = getPromptBuilderService();
+    const project = service.createProject({ name: "Version API TOCTOU" });
+    service.upsertProductProfile(project.id, { facts: {
+      title: "Blue dress", category: "Dresses", audience: "Children", material: "Cotton",
+      colors: ["blue"], features: [], backViewEvidence: false,
+    } });
+    const design = service.createDesign(project.id, { name: "Version API", selectedModuleIds: ["purpose_amazon_listing"] });
+    const compiled = service.compileEnvelope(design.id);
+    service.autosaveDesign(design.id, { parameters: { width: 1600 } }, compiled.revision);
+    const { POST } = await import("./designs/[id]/versions/route");
+    const response = await POST(new Request(`http://localhost/api/designs/${design.id}/versions`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedRevision: compiled.revision }),
+    }), { params: Promise.resolve({ id: design.id }) });
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: { code: "STALE_REVISION", message: "Design revision is stale" } });
+    expect(service.listVersions(design.id)).toHaveLength(0);
   });
 });

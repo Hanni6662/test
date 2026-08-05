@@ -10,7 +10,9 @@ export function createLatestPendingQueue<T>(
   options: { onRetry?: () => Promise<void>; onError?: (error: unknown) => void } = {},
 ) {
   let active = false;
-  let pending: T | undefined;
+  let disposed = false;
+  let lifecycle = 0;
+  let pending: { value: T; lifecycle: number } | undefined;
   let terminalError: unknown;
   let flushWaiters: Array<{ resolve: () => void; reject: (error: unknown) => void }> = [];
 
@@ -30,12 +32,15 @@ export function createLatestPendingQueue<T>(
       const current = pending;
       pending = undefined;
       try {
-        await process(current);
+        await process(current.value);
+        if (disposed || current.lifecycle !== lifecycle) continue;
         terminalError = undefined;
       } catch (error) {
+        if (disposed || current.lifecycle !== lifecycle) continue;
         if (error instanceof RetryLatestSave) {
           try {
             await options.onRetry?.();
+            if (disposed || current.lifecycle !== lifecycle) continue;
             if (pending === undefined) pending = current;
           } catch (retryError) {
             terminalError = retryError;
@@ -53,13 +58,30 @@ export function createLatestPendingQueue<T>(
 
   return {
     enqueue(value: T) {
+      if (disposed) return;
       terminalError = undefined;
-      pending = value;
+      pending = { value, lifecycle };
       void drain();
     },
     flush(): Promise<void> {
       if (!active && pending === undefined) return Promise.resolve();
       return new Promise((resolve, reject) => flushWaiters.push({ resolve, reject }));
+    },
+    flushAndDrain(): Promise<void> {
+      if (!active && pending === undefined) return Promise.resolve();
+      return new Promise((resolve, reject) => flushWaiters.push({ resolve, reject }));
+    },
+    dispose() {
+      disposed = true;
+      lifecycle += 1;
+      pending = undefined;
+      terminalError = undefined;
+      settle();
+    },
+    mount() {
+      disposed = false;
+      lifecycle += 1;
+      terminalError = undefined;
     },
   };
 }

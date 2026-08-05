@@ -106,9 +106,23 @@ describe("PromptBuilderService persistence", () => {
       custom: {},
     });
 
-    expect(() => service.saveVersion(design.id))
+    expect(() => service.saveVersion(design.id, design.revision))
       .toThrowError(new ServiceError("HARD_CONSTRAINTS", 422, "Design has hard constraint errors"));
     expect(service.listVersions(design.id)).toEqual([]);
+  });
+
+  it("rejects version creation when another connection advances the compiled revision", () => {
+    const project = service.createProject({ name: "Version TOCTOU" });
+    service.upsertProductProfile(project.id, { facts });
+    const design = service.createDesign(project.id, { name: "Version TOCTOU", selectedModuleIds: ["purpose_amazon_listing"] });
+    const compiled = service.compileEnvelope(design.id);
+    const competing = createPromptBuilderService(databasePath);
+    competing.autosaveDesign(design.id, { parameters: { width: 1800 } }, compiled.revision);
+    competing.close();
+
+    expect(() => service.saveVersion(design.id, compiled.revision))
+      .toThrowError(expect.objectContaining({ code: "STALE_REVISION" }));
+    expect(service.listVersions(design.id)).toHaveLength(0);
   });
 
   it("seeds builtins and refuses to mutate them", () => {
@@ -294,7 +308,7 @@ describe("PromptBuilderService persistence", () => {
       parameters: { quality: "high" },
       custom: { notes: "initial" },
     });
-    const saved = service.saveVersion(design.id);
+    const saved = service.saveVersion(design.id, design.revision);
 
     service.upsertProductProfile(project.id, {
       facts: { ...facts, title: "Changed product" },
@@ -317,7 +331,7 @@ describe("PromptBuilderService persistence", () => {
       parameters: { width: 1000 },
       custom: {},
     });
-    const original = service.saveVersion(design.id);
+    const original = service.saveVersion(design.id, design.revision);
     service.autosaveDesign(design.id, { parameters: { width: 2000 } }, design.revision);
 
     const restored = service.restoreVersion(design.id, original.id);
@@ -335,7 +349,7 @@ describe("PromptBuilderService persistence", () => {
     const project = service.createProject({ name: "Legacy hard error" });
     service.upsertProductProfile(project.id, { facts });
     const design = service.createDesign(project.id, { name: "Legacy", selectedModuleIds: ["purpose_amazon_listing"] });
-    const original = service.saveVersion(design.id);
+    const original = service.saveVersion(design.id, design.revision);
     const injector = new BetterSqlite3(databasePath);
     injector.prepare("UPDATE prompt_versions SET compile_snapshot_json = ? WHERE id = ?").run(JSON.stringify({
       ...original.compileSnapshot,
@@ -405,7 +419,7 @@ describe("PromptBuilderService persistence", () => {
       parameters: { width: 1000 },
       custom: {},
     });
-    const original = service.saveVersion(design.id);
+    const original = service.saveVersion(design.id, design.revision);
     service.autosaveDesign(design.id, { parameters: { width: 2000 } }, design.revision);
     const injector = new BetterSqlite3(databasePath);
     injector.exec(`CREATE TRIGGER fail_restore_version
@@ -430,7 +444,7 @@ describe("PromptBuilderService persistence", () => {
       throw new Error("saveVersion must not call the rereading compile method");
     };
 
-    const version = service.saveVersion(design.id);
+    const version = service.saveVersion(design.id, design.revision);
 
     expect(version.productSnapshot.facts.title).toBe(facts.title);
     expect(version.compileSnapshot.prompt).toContain(`Title: ${facts.title}`);
@@ -448,8 +462,8 @@ describe("PromptBuilderService persistence", () => {
     const secondService = createPromptBuilderService(databasePath);
     try {
       const versions = await Promise.all([
-        Promise.resolve().then(() => service.saveVersion(design.id)),
-        Promise.resolve().then(() => secondService.saveVersion(design.id)),
+        Promise.resolve().then(() => service.saveVersion(design.id, design.revision)),
+        Promise.resolve().then(() => secondService.saveVersion(design.id, design.revision)),
       ]);
       expect(versions.map((version) => version.versionNumber).sort()).toEqual([1, 2]);
       for (const version of versions) {
@@ -491,11 +505,11 @@ describe("PromptBuilderService persistence", () => {
     });
     const startedAt = Date.now();
 
-    const first = service.saveVersion(design.id);
+    const first = service.saveVersion(design.id, design.revision);
     const waitedMs = Date.now() - startedAt;
     const secondService = createPromptBuilderService(databasePath);
     try {
-      const second = secondService.saveVersion(design.id);
+      const second = secondService.saveVersion(design.id, design.revision);
       expect(waitedMs).toBeGreaterThanOrEqual(150);
       expect([first.versionNumber, second.versionNumber]).toEqual([1, 2]);
     } finally {
@@ -549,7 +563,7 @@ describe("PromptBuilderService persistence", () => {
         credentials: [{ client_secret: "custom-client-secret", caption: "safe caption" }],
       },
     });
-    const version = service.saveVersion(design.id);
+    const version = service.saveVersion(design.id, design.revision);
 
     const exported = service.exportVersion(version.id);
     const json = JSON.stringify(exported);

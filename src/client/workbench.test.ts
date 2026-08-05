@@ -1,5 +1,29 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { canExportCompile, createDebouncer, declaredParameterKeys, describeCompile, diffVersions, imageClassificationOptions, isCompileContextCurrent, isNavigationRequestCurrent, parseExportableParameterKeys, parseParameterValue, reconcileDeclaredParameters, safeDraftExport, shouldAcceptCompile } from "./workbench";
+import * as workbenchModule from "./workbench";
+
+function delayed<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
+type OperationController = {
+  capture(designId: string | null): { generation: number; designId: string | null };
+  activate(designId: string | null): void;
+  invalidate(): void;
+  isCurrent(token: { generation: number; designId: string | null }): boolean;
+  dispose(): void;
+  mount(): void;
+};
+
+const createOperationController = () => (workbenchModule as unknown as {
+  createOperationController(initialDesignId: string | null): OperationController;
+}).createOperationController("design-a");
+
+const createSerialExecutor = () => (workbenchModule as unknown as {
+  createSerialExecutor(): <T>(operation: () => Promise<T>) => Promise<T>;
+}).createSerialExecutor();
 
 describe("workbench helpers", () => {
   afterEach(() => vi.useRealTimers());
@@ -94,6 +118,54 @@ describe("workbench helpers", () => {
     expect(isNavigationRequestCurrent(4, 4, "design-a", "design-a")).toBe(true);
     expect(isNavigationRequestCurrent(3, 4, "design-a", "design-a")).toBe(false);
     expect(isNavigationRequestCurrent(4, 4, "design-a", "design-b")).toBe(false);
+  });
+
+  it("drops a delayed polish completion after another design becomes active", async () => {
+    const controller = createOperationController();
+    const token = controller.capture("design-a");
+    const response = delayed<string>(); const published: string[] = [];
+    const completion = response.promise.then((value) => { if (controller.isCurrent(token)) published.push(value); });
+    controller.activate("design-b"); response.resolve("stale polish"); await completion;
+    expect(published).toEqual([]);
+  });
+
+  it("drops a delayed restore completion after navigation changes the active design", async () => {
+    const controller = createOperationController();
+    const token = controller.capture("design-a");
+    const response = delayed<string>(); const published: string[] = [];
+    const completion = response.promise.then((value) => { if (controller.isCurrent(token)) published.push(value); });
+    controller.activate(null); response.resolve("stale restore"); await completion;
+    expect(published).toEqual([]);
+  });
+
+  it("drops a builder compile completion after a profile mutation invalidates its context", async () => {
+    const controller = createOperationController();
+    const token = controller.capture("design-a");
+    const response = delayed<string>(); const published: string[] = [];
+    const completion = response.promise.then((value) => { if (controller.isCurrent(token)) published.push(value); });
+    controller.invalidate(); response.resolve("stale compile"); await completion;
+    expect(published).toEqual([]);
+  });
+
+  it("can remount after a React development lifecycle cleanup", () => {
+    const controller = createOperationController();
+    controller.dispose();
+    controller.mount();
+    const token = controller.capture(null);
+    expect(controller.isCurrent(token)).toBe(true);
+  });
+
+  it("runs an overlapping transition after the active transition completes", async () => {
+    const first = delayed<void>();
+    const calls: string[] = [];
+    const run = createSerialExecutor();
+    const one = run(async () => { calls.push("first:start"); await first.promise; calls.push("first:end"); });
+    const two = run(async () => { calls.push("second"); });
+    await Promise.resolve();
+    expect(calls).toEqual(["first:start"]);
+    first.resolve();
+    await Promise.all([one, two]);
+    expect(calls).toEqual(["first:start", "first:end", "second"]);
   });
 
   it("lists only parameters declared by selected modules and removes undeclared values", () => {

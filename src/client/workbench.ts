@@ -93,6 +93,52 @@ export function isNavigationRequestCurrent(request: number, currentRequest: numb
   return request === currentRequest && requestedDesignId === activeDesignId;
 }
 
+export type OperationToken = { generation: number; designId: string | null };
+
+export function createOperationController(initialDesignId: string | null = null) {
+  let generation = 0;
+  let activeDesignId = initialDesignId;
+  let mounted = true;
+  return {
+    capture(designId: string | null = activeDesignId): OperationToken {
+      return { generation, designId };
+    },
+    activate(designId: string | null) {
+      generation += 1;
+      activeDesignId = designId;
+    },
+    invalidate() {
+      generation += 1;
+    },
+    isCurrent(token: OperationToken): boolean {
+      return mounted && token.generation === generation && token.designId === activeDesignId;
+    },
+    mount(designId: string | null = activeDesignId) {
+      mounted = true;
+      generation += 1;
+      activeDesignId = designId;
+    },
+    dispose() {
+      mounted = false;
+      generation += 1;
+      activeDesignId = null;
+    },
+    get generation() { return generation; },
+    get activeDesignId() { return activeDesignId; },
+  };
+}
+
+export type OperationController = ReturnType<typeof createOperationController>;
+
+export function createSerialExecutor() {
+  let tail: Promise<unknown> = Promise.resolve();
+  return function run<T>(operation: () => Promise<T>): Promise<T> {
+    const result = tail.then(operation, operation);
+    tail = result.then(() => undefined, () => undefined);
+    return result;
+  };
+}
+
 type ParameterModule = {
   id: string;
   definition: { exportableParameterKeys?: readonly string[] };
