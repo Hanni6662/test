@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -46,7 +46,7 @@ describe("image and AI workflow routes", () => {
     const response = await route.POST(new Request("http://x/images", { method: "POST", body: form }), { params: Promise.resolve({ id: project.id }) });
     expect(response.status).toBe(500);
     const projectRoot = join(process.env.PROMPT_BUILDER_UPLOAD_ROOT!, project.id);
-    expect(existsSync(projectRoot) ? readdirSync(projectRoot) : []).toEqual([]);
+    expect(existsSync(projectRoot)).toBe(false);
     expect(service.listReferenceImages(project.id)).toEqual([]);
   });
 
@@ -59,7 +59,26 @@ describe("image and AI workflow routes", () => {
     expect(await patched.json()).toMatchObject({ effectiveClassification: "detail", status: "reviewed" });
     const target = join(process.env.PROMPT_BUILDER_UPLOAD_ROOT!, created[0].storagePath); expect(existsSync(target)).toBe(true);
     expect((await imageRoute.DELETE(new Request("http://x/image", { method: "DELETE" }), { params: Promise.resolve({ id: created[0].id }) })).status).toBe(200);
-    expect(existsSync(target)).toBe(false); expect(service.listReferenceImages(project.id)).toEqual([]);
+    expect(existsSync(target)).toBe(false); expect(existsSync(join(process.env.PROMPT_BUILDER_UPLOAD_ROOT!, project.id))).toBe(false); expect(service.listReferenceImages(project.id)).toEqual([]);
+  });
+
+  it("deletes a legacy reference from DB without interpreting its identifier as a file path", async () => {
+    const service = (await import("@/server/persistence/runtime")).getPromptBuilderService(); const project = service.createProject({ name: "Legacy delete" });
+    const [legacy] = service.addLegacyReferenceImages(project.id, [{ identifier: "../must-not-touch.txt", filename: "legacy.png" }]);
+    const route = await import("./images/[id]/route");
+    const response = await route.DELETE(new Request("http://x/image", { method: "DELETE" }), { params: Promise.resolve({ id: legacy.id }) });
+    expect(response.status).toBe(200); expect(service.listReferenceImages(project.id)).toEqual([]);
+  });
+
+  it("restores a quarantined upload when DB deletion fails", async () => {
+    const service = (await import("@/server/persistence/runtime")).getPromptBuilderService(); const project = service.createProject({ name: "Delete rollback" });
+    const uploads = await import("./projects/[id]/images/route"); const form = new FormData(); form.append("images", new File([PNG], "front.png", { type: "image/png" }));
+    const [created] = await (await uploads.POST(new Request("http://x/images", { method: "POST", body: form }), { params: Promise.resolve({ id: project.id }) })).json();
+    const target = join(process.env.PROMPT_BUILDER_UPLOAD_ROOT!, created.storagePath);
+    const injector = new BetterSqlite3(process.env.PROMPT_BUILDER_DB_PATH!);
+    injector.exec("CREATE TRIGGER fail_image_delete BEFORE DELETE ON reference_images BEGIN SELECT RAISE(ABORT, 'delete failure'); END"); injector.close();
+    const route = await import("./images/[id]/route"); const response = await route.DELETE(new Request("http://x/image", { method: "DELETE" }), { params: Promise.resolve({ id: created.id }) });
+    expect(response.status).toBe(500); expect(existsSync(target)).toBe(true); expect(service.getReferenceImage(created.id).id).toBe(created.id);
   });
 
   it("classifies images and extracts evidenced candidates through structured AI routes", async () => {
@@ -77,6 +96,17 @@ describe("image and AI workflow routes", () => {
     expect(await (await classify.POST(new Request("http://x/classify", { method: "POST" }), { params: Promise.resolve({ id: project.id }) })).json()).toMatchObject([{ aiClassification: "front", effectiveClassification: "front" }]);
     const extract = await import("./projects/[id]/product-profile/extract/route");
     expect(await (await extract.POST(new Request("http://x/extract", { method: "POST" }), { params: Promise.resolve({ id: project.id }) })).json()).toMatchObject({ aiCandidates: [{ field: "material", evidenceImageIds: [image.id] }] });
+  });
+
+  it("round-trips product profile GET to POST without copying or replacing image rows", async () => {
+    const service = (await import("@/server/persistence/runtime")).getPromptBuilderService(); const project = service.createProject({ name: "Profile round trip" });
+    service.upsertProductProfile(project.id, { facts: { title: "Shoe", category: "Shoes", audience: "Adults", material: "Leather", colors: [], features: [], backViewEvidence: false }, referenceImages: [] });
+    const [image] = service.addReferenceImages(project.id, [{ storagePath: `${project.id}/one.png`, originalFilename: "one.png", mimeType: "image/png", size: 8 }]);
+    const route = await import("./projects/[id]/product-profile/route");
+    const getResponse = await route.GET(new Request("http://x/profile"), { params: Promise.resolve({ id: project.id }) }); const profile = await getResponse.json();
+    const postResponse = await route.POST(new Request("http://x/profile", { method: "POST", body: JSON.stringify(profile) }), { params: Promise.resolve({ id: project.id }) });
+    expect(postResponse.status).toBe(200);
+    expect(service.listReferenceImages(project.id).map(({ id }) => id)).toEqual([image.id]);
   });
 
   it("supports a fully manual path when AI is not configured", async () => {

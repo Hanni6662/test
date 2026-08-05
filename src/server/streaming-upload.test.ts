@@ -50,6 +50,13 @@ describe("streaming multipart image parser", () => {
     expect(existsSync(join(root, "project-1"))).toBe(false);
   });
 
+  it("rejects an invalid multipart boundary without leaving an empty project directory", async () => {
+    const root = mkdtempSync(join(tmpdir(), "stream-upload-")); roots.push(root);
+    const request = new Request("http://x/images", { method: "POST", headers: { "content-type": "multipart/form-data; boundary=" }, body: "x" });
+    await expect(parseMultipartImages(request, root, "project-1")).rejects.toMatchObject({ code: "INVALID_MULTIPART" });
+    expect(existsSync(join(root, "project-1"))).toBe(false);
+  });
+
   it("accepts exactly 10 MB and rejects a chunked file one byte larger with cleanup", async () => {
     const okRoot = mkdtempSync(join(tmpdir(), "stream-upload-")); roots.push(okRoot);
     const exact = new Uint8Array(MAX_IMAGE_BYTES); exact.set(JPEG);
@@ -60,7 +67,7 @@ describe("streaming multipart image parser", () => {
     const over = new Uint8Array(MAX_IMAGE_BYTES + 1); over.set(JPEG);
     const bad = multipart([{ name: "over.jpg", type: "image/jpeg", bytes: over }]);
     await expect(parseMultipartImages(requestFor(bad.bytes, bad.boundary), badRoot, "p")).rejects.toMatchObject({ code: "IMAGE_TOO_LARGE" });
-    expect(existsSync(join(badRoot, "p")) ? readdirSync(join(badRoot, "p")) : []).toEqual([]);
+    expect(existsSync(join(badRoot, "p"))).toBe(false);
   });
 
   it("accepts exactly 20 images and rejects the 21st with cleanup", async () => {
@@ -69,7 +76,7 @@ describe("streaming multipart image parser", () => {
     await expect(parseMultipartImages(requestFor(twenty.bytes, twenty.boundary), root, "ok")).resolves.toHaveLength(20);
     const tooMany = multipart(Array.from({ length: MAX_BATCH_IMAGES + 1 }, (_, index) => ({ name: `${index}.jpg`, type: "image/jpeg", bytes: JPEG })));
     await expect(parseMultipartImages(requestFor(tooMany.bytes, tooMany.boundary), root, "bad")).rejects.toMatchObject({ code: "TOO_MANY_IMAGES" });
-    expect(existsSync(join(root, "bad")) ? readdirSync(join(root, "bad")) : []).toEqual([]);
+    expect(existsSync(join(root, "bad"))).toBe(false);
   });
 
   it("cleans every newly written file when a later filesystem write fails", async () => {
@@ -83,6 +90,6 @@ describe("streaming multipart image parser", () => {
         return createWriteStream(path, { flags: "wx" });
       },
     })).rejects.toThrow("disk failure");
-    expect(existsSync(join(root, "p")) ? readdirSync(join(root, "p")) : []).toEqual([]);
+    expect(existsSync(join(root, "p"))).toBe(false);
   });
 });

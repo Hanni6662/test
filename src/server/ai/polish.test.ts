@@ -5,7 +5,7 @@ describe("safe prompt polish", () => {
   const original = [
     "## Product Facts (Immutable)\nTitle: Blue Shoe\nCategory: Footwear\nAudience: Adults\nMaterial: leather\nColors: blue\nVerified features: rubber sole\nBack-view evidence: not supplied\nTreat every fact above as immutable; never invent unsupported product details.",
     "## Purpose & Subject\n- Present the blue shoe with a white ribbon as a commercial hero product.",
-    "## Composition & Camera\n- Centered front and side view with balanced framing.",
+    "## Composition & Camera\n- Centered front and side view with balanced 1:5 scale and 1024 x 768 framing.",
     "## Scene\nNo additional direction selected.",
     "## Style, Color & Lighting\n- Clean studio lighting and crisp detail.",
     "## Text\nNo additional direction selected.",
@@ -30,5 +30,7 @@ describe("safe prompt polish", () => {
     expect(() => validatePolishedPrompt(original, original.replace("## Text", "## Typography"))).toThrowError(/preserve/i);
     expect(() => validatePolishedPrompt(original, original.replace("blue shoe with a white ribbon", "white shoe with a blue ribbon"))).toThrowError(/preserve/i);
     expect(() => validatePolishedPrompt(original, original.replace("front and side view", "front or side view"))).toThrowError(/preserve/i);
+    expect(() => validatePolishedPrompt(original, original.replace("1:5 scale", "1.5 scale"))).toThrowError(/preserve/i);
+    expect(() => validatePolishedPrompt(original, original.replace("1024 x 768", "1024 + 768"))).toThrowError(/preserve/i);
   });
 });

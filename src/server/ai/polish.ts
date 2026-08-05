@@ -35,10 +35,20 @@ function tokens(value: string): string[] {
   return [...value.toLowerCase().matchAll(/[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu)].map(([token]) => token);
 }
 
+function numericAndOperatorTokens(value: string): string[] {
+  const numeric = [...value.matchAll(/(?<![\p{L}\p{N}])\d+(?:\s*(?:[.:/x×*+\-])\s*\d+)*(?:\s*(?:%|px|cm|mm|in|inch|inches))?(?![\p{L}\p{N}])/giu)]
+    .map(([token]) => token.toLowerCase().replace(/\s+/g, ""));
+  const operators = [...value.matchAll(/[<>≤≥=±]/gu)].map(([token]) => token);
+  return [...numeric, ...operators];
+}
+
 export function validatePolishedPrompt(original: string | CompileResult, polished: string): string {
   const source = typeof original === "string" ? original : original.prompt;
   const sourceSections = parseFixedSections(source);
   const polishedSections = parseFixedSections(polished);
+  const sourceNumeric = numericAndOperatorTokens(source);
+  const polishedNumeric = numericAndOperatorTokens(polished);
+  if (sourceNumeric.length !== polishedNumeric.length || sourceNumeric.some((token, index) => token !== polishedNumeric[index])) fail();
   for (const index of PROTECTED_SECTION_INDEXES) {
     if (normalizeWhitespace(sourceSections[index]) !== normalizeWhitespace(polishedSections[index])) fail();
   }

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, unlink, writeFile } from "node:fs/promises";
+import { mkdir, rmdir, unlink, writeFile as fsWriteFile } from "node:fs/promises";
 import { basename, extname, isAbsolute, relative, resolve, sep } from "node:path";
 
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -30,7 +30,9 @@ function projectDirectory(uploadRoot: string, projectId: string): string {
   return resolve(uploadRoot, projectId);
 }
 
-export async function storeUploadedFiles(uploadRoot: string, projectId: string, files: File[]): Promise<StoredUpload[]> {
+export interface StoreUploadedFilesOptions { writeFile?: typeof fsWriteFile }
+
+export async function storeUploadedFiles(uploadRoot: string, projectId: string, files: File[], options: StoreUploadedFilesOptions = {}): Promise<StoredUpload[]> {
   if (files.length === 0) throw new UploadError("NO_IMAGES", 400, "At least one image is required");
   if (files.length > MAX_BATCH_IMAGES) throw new UploadError("TOO_MANY_IMAGES", 413, "A batch may contain at most 20 images");
   const validated: Array<StoredUpload & { bytes: Uint8Array }> = [];
@@ -55,11 +57,12 @@ export async function storeUploadedFiles(uploadRoot: string, projectId: string, 
   try {
     for (const item of validated) {
       const target = resolve(uploadRoot, item.storagePath);
-      await writeFile(target, item.bytes, { flag: "wx" });
+      await (options.writeFile ?? fsWriteFile)(target, item.bytes, { flag: "wx" });
       written.push(target);
     }
   } catch (error) {
     await Promise.all(written.map((path) => unlink(path).catch(() => undefined)));
+    await rmdir(directory).catch(() => undefined);
     throw error;
   }
   return validated.map((item) => ({ storagePath: item.storagePath, originalFilename: item.originalFilename, mimeType: item.mimeType, size: item.size }));
@@ -74,5 +77,8 @@ export async function deleteUploadedFile(uploadRoot: string, projectId: string, 
   }
   await unlink(target).catch((error: NodeJS.ErrnoException) => {
     if (error.code !== "ENOENT") throw error;
+  });
+  await rmdir(directory).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== "ENOENT" && error.code !== "ENOTEMPTY" && error.code !== "EEXIST") throw error;
   });
 }

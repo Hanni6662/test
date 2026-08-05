@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -32,5 +32,13 @@ describe("secure image storage", () => {
     const root = mkdtempSync(join(tmpdir(), "uploads-")); roots.push(root);
     await expect(deleteUploadedFile(root, "project-1", "../other/secret.png"))
       .rejects.toBeInstanceOf(UploadError);
+  });
+
+  it("removes the empty project directory when a filesystem write fails", async () => {
+    const root = mkdtempSync(join(tmpdir(), "uploads-")); roots.push(root);
+    await expect(storeUploadedFiles(root, "project-1", [new File([PNG], "one.png", { type: "image/png" })], {
+      writeFile: async () => { throw new Error("disk failure"); },
+    })).rejects.toThrow("disk failure");
+    expect(existsSync(join(root, "project-1"))).toBe(false);
   });
 });

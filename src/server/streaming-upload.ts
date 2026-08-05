@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { mkdir, unlink } from "node:fs/promises";
+import { mkdir, rmdir, unlink } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { once } from "node:events";
 import { pipeline } from "node:stream/promises";
@@ -38,7 +38,6 @@ export async function parseMultipartImages(request: Request, uploadRoot: string,
   if (!request.body) throw new UploadError("NO_IMAGES", 400, "At least one image is required");
 
   const directory = safeProjectDirectory(uploadRoot, projectId);
-  await mkdir(directory, { recursive: true });
   const createdPaths: string[] = [];
   const filePromises: Array<Promise<StoredUpload>> = [];
   let fileCount = 0;
@@ -52,6 +51,7 @@ export async function parseMultipartImages(request: Request, uploadRoot: string,
   } catch {
     throw new UploadError("INVALID_MULTIPART", 400, "Multipart boundary is invalid");
   }
+  await mkdir(directory, { recursive: true });
 
   parser.on("file", (fieldName, stream, info) => {
     fileCount += 1;
@@ -116,6 +116,9 @@ export async function parseMultipartImages(request: Request, uploadRoot: string,
     parser.destroy();
     await Promise.allSettled(filePromises);
     await Promise.all(createdPaths.map((path) => unlink(path).catch(() => undefined)));
+    await rmdir(directory).catch((cleanupError: NodeJS.ErrnoException) => {
+      if (cleanupError.code !== "ENOENT" && cleanupError.code !== "ENOTEMPTY" && cleanupError.code !== "EEXIST") throw cleanupError;
+    });
     throw error;
   }
 }

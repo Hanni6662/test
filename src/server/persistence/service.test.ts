@@ -39,8 +39,9 @@ describe("PromptBuilderService persistence", () => {
     service.renameProject(project.id, { name: "Summer launch 2026" });
     service.upsertProductProfile(project.id, {
       facts,
-      referenceImages: [{ identifier: "sha256:front", filename: "front.png" }],
+      referenceImages: [],
     });
+    service.addLegacyReferenceImages(project.id, [{ identifier: "sha256:front", filename: "front.png" }]);
     const design = service.createDesign(project.id, {
       name: "Hero",
       selectedModuleIds: ["purpose_amazon_listing"],
@@ -125,6 +126,23 @@ describe("PromptBuilderService persistence", () => {
       { imageId: second.id, classification: "front", confidence: 0.9 },
     ]);
     expect(service.getReferenceImage(first.id)).toMatchObject({ aiClassification: "back", userClassification: "detail", effectiveClassification: "detail", status: "reviewed" });
+  });
+
+  it("classifies only upload-backed images and leaves legacy references untouched", () => {
+    const project = service.createProject({ name: "Legacy split" });
+    const [legacy] = service.addLegacyReferenceImages(project.id, [{ identifier: "sha256:legacy", filename: "legacy.png" }]);
+    const [uploaded] = service.addReferenceImages(project.id, [{ storagePath: `${project.id}/one.png`, originalFilename: "one.png", mimeType: "image/png", size: 8 }]);
+    service.setAiClassifications(project.id, [{ imageId: uploaded.id, classification: "front", confidence: 0.9 }]);
+    expect(service.getReferenceImage(legacy.id)).toMatchObject({ uploadBacked: false, storagePath: null, aiClassification: null });
+    expect(service.getReferenceImage(uploaded.id)).toMatchObject({ uploadBacked: true, aiClassification: "front" });
+  });
+
+  it("rejects AI candidate evidence from a legacy image the provider could not read", () => {
+    const project = service.createProject({ name: "Legacy evidence" });
+    service.upsertProductProfile(project.id, { facts, referenceImages: [] });
+    const [legacy] = service.addLegacyReferenceImages(project.id, [{ identifier: "sha256:legacy", filename: "legacy.png" }]);
+    expect(() => service.replaceAiCandidates(project.id, [{ field: "material", value: "linen", confidence: 0.8, evidenceImageIds: [legacy.id] }]))
+      .toThrowError(new ServiceError("INVALID_EVIDENCE_IMAGE", 400, "Candidate evidence must reference an uploaded image in the project"));
   });
 
   it("does not copy source-project upload paths or AI evidence when duplicating a project", () => {
@@ -251,24 +269,25 @@ describe("PromptBuilderService persistence", () => {
     ]);
   });
 
-  it("rolls back a profile and its reference images when replacement insertion fails", () => {
+  it("updates a profile without inserting, replacing, or deleting legacy reference rows", () => {
     const project = service.createProject({ name: "Profile rollback" });
     service.upsertProductProfile(project.id, {
       facts,
-      referenceImages: [{ identifier: "sha256:old", filename: "old.png" }],
+      referenceImages: [],
     });
+    service.addLegacyReferenceImages(project.id, [{ identifier: "sha256:old", filename: "old.png" }]);
     const injector = new BetterSqlite3(databasePath);
     injector.exec(`CREATE TRIGGER fail_reference_insert
       BEFORE INSERT ON reference_images BEGIN SELECT RAISE(ABORT, 'injected failure'); END`);
     injector.close();
 
-    expect(() => service.upsertProductProfile(project.id, {
-      facts: { ...facts, title: "Must roll back" },
+    service.upsertProductProfile(project.id, {
+      facts: { ...facts, title: "Updated without touching images" },
       referenceImages: [{ identifier: "sha256:new", filename: "new.png" }],
-    })).toThrow("injected failure");
+    });
 
     expect(service.getProductProfile(project.id)).toMatchObject({
-      facts: { title: facts.title },
+      facts: { title: "Updated without touching images" },
       referenceImages: [{ identifier: "sha256:old", filename: "old.png" }],
     });
   });
@@ -277,8 +296,9 @@ describe("PromptBuilderService persistence", () => {
     const source = service.createProject({ name: "Duplicate rollback" });
     service.upsertProductProfile(source.id, {
       facts,
-      referenceImages: [{ identifier: "sha256:source", filename: "source.png" }],
+      referenceImages: [],
     });
+    service.addLegacyReferenceImages(source.id, [{ identifier: "sha256:source", filename: "source.png" }]);
     const injector = new BetterSqlite3(databasePath);
     injector.exec(`CREATE TRIGGER fail_duplicate_reference
       BEFORE INSERT ON reference_images WHEN NEW.project_id <> '${source.id}'
@@ -402,8 +422,9 @@ describe("PromptBuilderService persistence", () => {
     const project = service.createProject({ name: "Export" });
     service.upsertProductProfile(project.id, {
       facts,
-      referenceImages: [{ identifier: "sha256:front", filename: "front.png" }],
+      referenceImages: [],
     });
+    service.addLegacyReferenceImages(project.id, [{ identifier: "sha256:front", filename: "front.png" }]);
     const design = service.createDesign(project.id, {
       name: "Export design",
       selectedModuleIds: ["purpose_amazon_listing", "output_amazon_listing"],

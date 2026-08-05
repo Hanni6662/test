@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import BetterSqlite3 from "better-sqlite3";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { z } from "zod";
 import { compilePrompt } from "@/domain/prompt-compiler";
@@ -36,9 +36,10 @@ const referenceImageSchema = z.object({
   id: z.string().optional(),
   identifier: z.string().trim().min(1).max(500),
   filename: z.string().trim().min(1).max(255),
-  storagePath: z.string().optional(),
-  mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(),
-  size: z.number().int().nonnegative().optional(),
+  storagePath: z.string().nullable().optional(),
+  uploadBacked: z.boolean().optional(),
+  mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]).nullable().optional(),
+  size: z.number().int().nonnegative().nullable().optional(),
   aiClassification: imageClassificationSchema.nullable().optional(),
   userClassification: imageClassificationSchema.nullable().optional(),
   confidence: z.number().min(0).max(1).nullable().optional(),
@@ -90,7 +91,12 @@ const designSnapshotSchema = designCreateSchema.extend({ id: z.string(), project
 
 export type ReferenceImage = z.infer<typeof referenceImageSchema>;
 export type ProductProfile = z.infer<typeof productProfileInputSchema>;
-export type PersistedReferenceImage = Required<Pick<ReferenceImage, "id" | "identifier" | "filename" | "storagePath" | "mimeType" | "size" | "status" | "effectiveClassification">> & ReferenceImage & { projectId: string };
+export interface PersistedReferenceImage {
+  id: string; projectId: string; identifier: string; filename: string; storagePath: string | null; uploadBacked: boolean;
+  mimeType: "image/jpeg" | "image/png" | "image/webp" | null; size: number | null;
+  aiClassification: ImageClassification | null; userClassification: ImageClassification | null; confidence: number | null;
+  status: "uploaded" | "classified" | "reviewed"; effectiveClassification: ImageClassification;
+}
 export type AiCandidate = z.infer<typeof aiCandidateSchema>;
 export type DesignSnapshot = z.infer<typeof designSnapshotSchema>;
 export type StoredModule = z.infer<typeof storedModuleSchema> & { id: string; enabled: boolean };
@@ -285,9 +291,10 @@ export class PromptBuilderService {
         const sourceProfile = this.getProductProfile(id);
         this.upsertProductProfile(duplicate.id, {
           facts: sourceProfile.facts,
-          referenceImages: sourceProfile.referenceImages.filter((image) => image.size === 0)
-            .map((image) => ({ identifier: image.identifier, filename: image.filename })),
+          referenceImages: [],
         });
+        this.addLegacyReferenceImages(duplicate.id, sourceProfile.referenceImages.filter((image) => !image.uploadBacked)
+          .map((image) => ({ identifier: image.identifier, filename: image.filename })));
       }
       const designs = this.db.select().from(imageDesigns).where(eq(imageDesigns.projectId, id)).all();
       for (const design of designs) {
@@ -318,23 +325,6 @@ export class PromptBuilderService {
         target: productProfiles.projectId,
         set: { factsJson: JSON.stringify(profile.facts), aiCandidatesJson: candidatesJson, updatedAt: timestamp },
       }).run();
-      this.db.delete(referenceImages).where(and(eq(referenceImages.projectId, projectId), isNull(referenceImages.storagePath))).run();
-      if (profile.referenceImages.length) {
-        this.db.insert(referenceImages).values(profile.referenceImages.map((image) => ({
-          id: randomUUID(),
-          projectId,
-          identifier: image.identifier,
-          filename: image.filename,
-          storagePath: image.storagePath,
-          mimeType: image.mimeType,
-          size: image.size,
-          aiClassification: image.aiClassification,
-          userClassification: image.userClassification,
-          confidence: image.confidence == null ? null : Math.round(image.confidence * 1_000_000),
-          status: image.status ?? "uploaded",
-          createdAt: timestamp,
-        }))).run();
-      }
       return this.getProductProfile(projectId);
     });
   }
@@ -359,13 +349,23 @@ export class PromptBuilderService {
     return ids.map((id) => this.getReferenceImage(id));
   }
 
+  addLegacyReferenceImages(projectId: string, images: Array<{ identifier: string; filename: string }>): PersistedReferenceImage[] {
+    this.getProject(projectId);
+    const ids = images.map(() => randomUUID());
+    if (images.length) this.db.insert(referenceImages).values(images.map((image, index) => ({
+      id: ids[index], projectId, identifier: image.identifier, filename: image.filename, status: "uploaded", createdAt: now(),
+    }))).run();
+    return ids.map((id) => this.getReferenceImage(id));
+  }
+
   getReferenceImage(id: string): PersistedReferenceImage {
     const row = this.db.select().from(referenceImages).where(eq(referenceImages.id, id)).get();
     if (!row) throw new ServiceError("IMAGE_NOT_FOUND", 404, "Image not found");
     const aiClassification = row.aiClassification ? imageClassificationSchema.parse(row.aiClassification) : null;
     const userClassification = row.userClassification ? imageClassificationSchema.parse(row.userClassification) : null;
-    return { id: row.id, projectId: row.projectId, identifier: row.identifier, filename: row.filename, storagePath: row.storagePath ?? row.identifier,
-      mimeType: (row.mimeType ?? "image/png") as PersistedReferenceImage["mimeType"], size: row.size ?? 0,
+    const uploadBacked = row.storagePath !== null && row.mimeType !== null && row.size !== null;
+    return { id: row.id, projectId: row.projectId, identifier: row.identifier, filename: row.filename, storagePath: row.storagePath,
+      uploadBacked, mimeType: row.mimeType as PersistedReferenceImage["mimeType"], size: row.size,
       aiClassification, userClassification, confidence: row.confidence == null ? null : row.confidence / 1_000_000,
       status: row.status as PersistedReferenceImage["status"], effectiveClassification: userClassification ?? aiClassification ?? "unknown" };
   }
@@ -390,7 +390,7 @@ export class PromptBuilderService {
 
   setAiClassifications(projectId: string, values: Array<{ imageId: string; classification: ImageClassification; confidence: number }>): PersistedReferenceImage[] {
     return this.atomic(() => {
-      const images = this.listReferenceImages(projectId);
+      const images = this.listReferenceImages(projectId).filter((image) => image.uploadBacked);
       const allowed = new Set(images.map(({ id }) => id));
       const received = new Set(values.map(({ imageId }) => imageId));
       if (values.length !== images.length || received.size !== values.length || [...received].some((id) => !allowed.has(id))) {
@@ -416,9 +416,9 @@ export class PromptBuilderService {
 
   replaceAiCandidates(projectId: string, candidates: ProductFactCandidate[]): AiCandidate[] {
     this.getProductProfile(projectId);
-    const imageIds = new Set(this.listReferenceImages(projectId).map(({ id }) => id));
+    const imageIds = new Set(this.listReferenceImages(projectId).filter((image) => image.uploadBacked).map(({ id }) => id));
     const stored = candidates.map((candidate) => aiCandidateSchema.parse({ ...candidate, id: randomUUID() }));
-    if (stored.some((candidate) => candidate.evidenceImageIds.some((id) => !imageIds.has(id)))) throw new ServiceError("INVALID_EVIDENCE_IMAGE", 400, "Candidate evidence must reference an image in the project");
+    if (stored.some((candidate) => candidate.evidenceImageIds.some((id) => !imageIds.has(id)))) throw new ServiceError("INVALID_EVIDENCE_IMAGE", 400, "Candidate evidence must reference an uploaded image in the project");
     this.db.update(productProfiles).set({ aiCandidatesJson: JSON.stringify(stored), updatedAt: now() }).where(eq(productProfiles.projectId, projectId)).run();
     return stored;
   }
