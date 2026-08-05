@@ -385,6 +385,25 @@ describe("PromptBuilderService persistence", () => {
     ]);
   });
 
+  it("restores a polished version into the draft and preserves it in the new version", () => {
+    const project = service.createProject({ name: "Restore polish" });
+    service.upsertProductProfile(project.id, { facts });
+    const design = service.createDesign(project.id, { name: "Restore polish", selectedModuleIds: ["purpose_amazon_listing"] });
+    const compiled = service.compileEnvelope(design.id);
+    const polished = `${compiled.compile.prompt}\nPolished source.`;
+    const source = service.savePolishedVersion(design.id, polished, compiled.revision, compiled.compile.prompt).version;
+    const edited = service.autosaveDesign(design.id, { selectedModuleIds: ["purpose_temu"] }, source.designSnapshot.revision);
+    expect(edited.polishedPrompt).toBeNull();
+
+    const restored = service.restoreVersion(design.id, source.id);
+
+    expect(restored.polishedPrompt).toBe(polished);
+    expect(restored.designSnapshot.polishedPrompt).toBe(polished);
+    expect(service.getDesign(design.id).polishedPrompt).toBe(polished);
+    expect(restored.compileSnapshot.prompt).toBe(source.compileSnapshot.prompt);
+    expect(restored.compileSnapshot.compiledChinese).toBe(source.compileSnapshot.compiledChinese);
+  });
+
   it("rejects restoring a legacy version that contains hard errors", () => {
     const project = service.createProject({ name: "Legacy hard error" });
     service.upsertProductProfile(project.id, { facts });
@@ -399,6 +418,33 @@ describe("PromptBuilderService persistence", () => {
 
     expect(() => service.restoreVersion(design.id, original.id)).toThrowError(expect.objectContaining({ code: "HARD_CONSTRAINTS" }));
     expect(service.listVersions(design.id)).toHaveLength(1);
+  });
+
+  it("upgrades legacy module and compile snapshots to the bilingual read model", () => {
+    const project = service.createProject({ name: "Legacy bilingual" });
+    service.upsertProductProfile(project.id, { facts });
+    const design = service.createDesign(project.id, { name: "Legacy", selectedModuleIds: ["purpose_amazon_listing"] });
+    const version = service.saveVersion(design.id, design.revision);
+    const injector = new BetterSqlite3(databasePath);
+    injector.prepare("UPDATE prompt_versions SET module_snapshot_json = ?, compile_snapshot_json = ? WHERE id = ?").run(
+      JSON.stringify(version.moduleSnapshot.map((module) => ({
+        ...module,
+        definition: Object.fromEntries(Object.entries(module.definition).filter(([key]) => key !== "contentZh")),
+      }))),
+      JSON.stringify({
+        prompt: version.compileSnapshot.prompt,
+        sections: version.compileSnapshot.sections.map(({ title, content }) => ({ title, content })),
+        warnings: version.compileSnapshot.warnings,
+        errors: version.compileSnapshot.errors,
+      }),
+      version.id,
+    );
+    injector.close();
+
+    const [upgraded] = service.listVersions(design.id);
+    expect(upgraded.moduleSnapshot[0].definition.contentZh).toContain("亚马逊");
+    expect(upgraded.compileSnapshot.compiledChinese).toContain("商品标题：Blue cotton dress");
+    expect(upgraded.compileSnapshot.sections).toHaveLength(8);
   });
 
   it("rejects a polish saved against a stale design revision", () => {
@@ -627,7 +673,9 @@ describe("PromptBuilderService persistence", () => {
         credentials: [{ client_secret: "custom-client-secret", caption: "safe caption" }],
       },
     });
-    const version = service.saveVersion(design.id, design.revision);
+    const deterministic = service.compileEnvelope(design.id);
+    const polished = `${deterministic.compile.prompt}\nPolished safe conclusion.`;
+    const version = service.savePolishedVersion(design.id, polished, deterministic.revision, deterministic.compile.prompt).version;
 
     const exported = service.exportVersion(version.id);
     const json = JSON.stringify(exported);
@@ -648,8 +696,11 @@ describe("PromptBuilderService persistence", () => {
         lighting: "Soft daylight",
       },
       compilerVersion: "1.0.0",
+      polishedPrompt: polished,
     });
     expect(exported.compile).toEqual(version.compileSnapshot);
+    expect(exported.compile.compiledChinese).toContain("产品事实");
+    expect(exported.modules.every(({ definition }) => definition.contentZh.length > 0)).toBe(true);
     expect(exported.errors).toEqual(version.compileSnapshot.errors);
     expect(exported.warnings).toEqual(version.compileSnapshot.warnings);
     expect(json).not.toContain("must-not-export");

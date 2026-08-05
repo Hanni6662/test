@@ -107,8 +107,8 @@ export function compilePrompt(
   const knownIds = new Set(allModules.map((module) => module.id));
   const catalogById = new Map(catalog.map((module) => [module.id, module]));
   const selectedCatalog = snapshot.selectedModuleIds.flatMap((id) => {
-    const module = catalogById.get(id);
-    return module ? [module] : [];
+    const definition = catalogById.get(id);
+    return definition ? [definition] : [];
   });
   const selectedModules = SECTION_CATEGORIES.flatMap((categories) => categories.flatMap((category) => [
     ...selectedCatalog.filter((module) => module.category === category),

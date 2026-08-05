@@ -30,6 +30,16 @@ const updateCustomDirection = (current: Record<string, unknown>, category: strin
     updateCustomDirection(current: Record<string, unknown>, category: string, value: string): Record<string, unknown>;
   }).updateCustomDirection(current, category, value);
 
+const copyTextForLanguage = (compile: { prompt: string; compiledChinese: string }, language: "en" | "zh") =>
+  (workbenchModule as unknown as {
+    copyTextForLanguage(compile: { prompt: string; compiledChinese: string }, language: "en" | "zh"): string;
+  }).copyTextForLanguage(compile, language);
+
+const preferredVersionPrompt = (version: { polishedPrompt: string | null; compileSnapshot: { prompt: string } }) =>
+  (workbenchModule as unknown as {
+    preferredVersionPrompt(version: { polishedPrompt: string | null; compileSnapshot: { prompt: string } }): string;
+  }).preferredVersionPrompt(version);
+
 describe("workbench helpers", () => {
   afterEach(() => vi.useRealTimers());
 
@@ -74,6 +84,14 @@ describe("workbench helpers", () => {
   it("deletes a custom category when its value becomes blank", () => {
     expect(updateCustomDirection({ scene: "old", lighting: "soft" }, "scene", "   ")).toEqual({ lighting: "soft" });
     expect(updateCustomDirection({}, "scene", "  夏日花园  ")).toEqual({ scene: "夏日花园" });
+  });
+
+  it("copies genuine Chinese compile text and prefers an explicit polished history prompt", () => {
+    const compile = { prompt: "deterministic English", compiledChinese: "确定性中文正文" };
+    expect(copyTextForLanguage(compile, "zh")).toBe("确定性中文正文");
+    expect(copyTextForLanguage(compile, "en")).toBe("deterministic English");
+    expect(preferredVersionPrompt({ polishedPrompt: "polished", compileSnapshot: compile })).toBe("polished");
+    expect(preferredVersionPrompt({ polishedPrompt: null, compileSnapshot: compile })).toBe("deterministic English");
   });
 
   it("flushes the latest debounced value before navigation", () => {

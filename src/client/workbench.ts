@@ -179,6 +179,20 @@ export function updateCustomDirection(
   return next;
 }
 
+export function copyTextForLanguage(
+  compile: { prompt: string; compiledChinese: string },
+  language: "en" | "zh",
+): string {
+  return language === "zh" ? compile.compiledChinese : compile.prompt;
+}
+
+export function preferredVersionPrompt(version: {
+  polishedPrompt: string | null;
+  compileSnapshot: { prompt: string };
+}): string {
+  return version.polishedPrompt ?? version.compileSnapshot.prompt;
+}
+
 export function parseExportableParameterKeys(raw: string): { keys: string[]; error: string } {
   const keys = raw.split(/[,，\s]+/).map((key) => key.trim()).filter(Boolean);
   if (keys.length > 50) return { keys, error: "导出参数键最多可配置 50 个" };

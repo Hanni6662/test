@@ -148,6 +148,7 @@ export interface VersionExport {
   parameters: Record<string, z.infer<typeof z.json>>;
   custom: Partial<Record<ModuleCategory, string>>;
   compile: CompileResult;
+  polishedPrompt: string | null;
   errors: CompileResult["errors"];
   warnings: CompileResult["warnings"];
   timestamp: string;
@@ -171,6 +172,26 @@ function now(): string {
 
 function parseJson<T>(value: string, schema: z.ZodType<T>): T {
   return schema.parse(JSON.parse(value));
+}
+
+function parseStoredDefinition(value: unknown): z.infer<typeof promptModuleDefinitionSchema> {
+  const raw = z.object({ id: z.string(), content: z.string() }).passthrough().parse(value);
+  const seeded = seedPromptModules.find((module) => module.id === raw.id);
+  return promptModuleDefinitionSchema.parse({
+    ...raw,
+    contentZh: typeof raw.contentZh === "string"
+      ? raw.contentZh
+      : seeded?.contentZh ?? `自定义模块原文：${raw.content}`,
+  });
+}
+
+function parseModuleSnapshots(value: string): ModuleVersionSnapshot[] {
+  const rows = z.array(z.object({
+    kind: z.enum(["builtin", "custom"]),
+    version: z.number().int().positive(),
+    definition: z.unknown(),
+  })).parse(JSON.parse(value));
+  return rows.map((row) => ({ ...row, definition: parseStoredDefinition(row.definition) }));
 }
 
 function safeParameters(
@@ -481,7 +502,7 @@ export class PromptBuilderService {
       kind: row.kind,
       version: row.version,
       enabled: row.enabled,
-      definition: parseJson(row.definitionJson, promptModuleDefinitionSchema),
+      definition: parseStoredDefinition(JSON.parse(row.definitionJson)),
     }));
   }
 
@@ -516,7 +537,7 @@ export class PromptBuilderService {
       kind: row.kind,
       version: row.version,
       enabled: row.enabled,
-      definition: parseJson(row.definitionJson, promptModuleDefinitionSchema),
+      definition: parseStoredDefinition(JSON.parse(row.definitionJson)),
     };
   }
 
@@ -708,14 +729,25 @@ export class PromptBuilderService {
   private getVersion(id: string): PromptVersion {
     const row = this.db.select().from(promptVersions).where(eq(promptVersions.id, id)).get();
     if (!row) throw new ServiceError("VERSION_NOT_FOUND", 404, "Version not found");
+    const productSnapshot = parseJson(row.productSnapshotJson, productSnapshotSchema);
+    const moduleSnapshot = parseModuleSnapshots(row.moduleSnapshotJson);
+    const designSnapshot = parseJson(row.designSnapshotJson, designSnapshotSchema);
+    const rawCompile = JSON.parse(row.compileSnapshotJson);
+    const parsedCompile = compileResultSchema.safeParse(rawCompile);
+    const compileSnapshot = parsedCompile.success
+      ? parsedCompile.data
+      : (() => {
+        const legacy = z.object({ warnings: z.array(compileIssueSchema), errors: z.array(compileIssueSchema) }).passthrough().parse(rawCompile);
+        return { ...this.compileSnapshots(designSnapshot, productSnapshot, moduleSnapshot), warnings: legacy.warnings, errors: legacy.errors };
+      })();
     return {
       id: row.id,
       designId: row.designId,
       versionNumber: row.versionNumber,
-      productSnapshot: parseJson(row.productSnapshotJson, productSnapshotSchema),
-      moduleSnapshot: parseJson(row.moduleSnapshotJson, storedModuleSchema.array()),
-      designSnapshot: parseJson(row.designSnapshotJson, designSnapshotSchema),
-      compileSnapshot: parseJson(row.compileSnapshotJson, compileResultSchema),
+      productSnapshot,
+      moduleSnapshot,
+      designSnapshot,
+      compileSnapshot,
       polishedPrompt: row.polishedPrompt,
       compilerVersion: row.compilerVersion,
       createdAt: row.createdAt,
@@ -737,12 +769,15 @@ export class PromptBuilderService {
         throw new ServiceError("VERSION_NOT_FOUND", 404, "Version not found for design");
       }
       const current = this.getDesign(designId);
-      const restoredDesign = this.updateDesignWithCas(designId, {
+      const restoredBase = this.updateDesignWithCas(designId, {
         name: source.designSnapshot.name,
         selectedModuleIds: source.designSnapshot.selectedModuleIds,
         parameters: source.designSnapshot.parameters,
         custom: source.designSnapshot.custom,
       }, current.revision);
+      this.db.update(imageDesigns).set({ polishedPrompt: source.polishedPrompt })
+        .where(and(eq(imageDesigns.id, designId), eq(imageDesigns.revision, restoredBase.revision))).run();
+      const restoredDesign = this.getDesign(designId);
       const latest = this.listVersions(designId)[0];
       return this.insertVersion({
         designId,
@@ -751,6 +786,7 @@ export class PromptBuilderService {
         moduleSnapshot: source.moduleSnapshot,
         designSnapshot: restoredDesign,
         compileSnapshot: source.compileSnapshot,
+        polishedPrompt: source.polishedPrompt,
       });
     });
   }
@@ -834,6 +870,7 @@ export class PromptBuilderService {
       ),
       custom: safeCustomDirections(version.designSnapshot.custom),
       compile,
+      polishedPrompt: z.string().nullable().parse(version.polishedPrompt),
       errors: compile.errors,
       warnings: compile.warnings,
       timestamp: version.createdAt,
