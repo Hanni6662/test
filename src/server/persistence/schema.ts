@@ -54,6 +54,7 @@ export const imageDesigns = sqliteTable("image_designs", {
   selectedModuleIdsJson: text("selected_module_ids_json").notNull(),
   parametersJson: text("parameters_json").notNull(),
   customJson: text("custom_json").notNull(),
+  polishedPrompt: text("polished_prompt"),
   revision: integer("revision").notNull().default(0),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
@@ -67,6 +68,7 @@ export const promptVersions = sqliteTable("prompt_versions", {
   moduleSnapshotJson: text("module_snapshot_json").notNull(),
   designSnapshotJson: text("design_snapshot_json").notNull(),
   compileSnapshotJson: text("compile_snapshot_json").notNull(),
+  polishedPrompt: text("polished_prompt"),
   compilerVersion: text("compiler_version").notNull(),
   createdAt: text("created_at").notNull(),
 }, (table) => [

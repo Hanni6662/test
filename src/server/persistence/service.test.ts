@@ -34,6 +34,26 @@ describe("PromptBuilderService persistence", () => {
     rmSync(directory, { recursive: true, force: true });
   });
 
+  it("adds nullable polished prompt columns to an existing database", () => {
+    const legacyPath = join(directory, "legacy.db");
+    const legacy = new BetterSqlite3(legacyPath);
+    legacy.exec(`
+      CREATE TABLE image_designs (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, name TEXT NOT NULL, selected_module_ids_json TEXT NOT NULL, parameters_json TEXT NOT NULL, custom_json TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE TABLE prompt_versions (id TEXT PRIMARY KEY, design_id TEXT NOT NULL, version_number INTEGER NOT NULL, product_snapshot_json TEXT NOT NULL, module_snapshot_json TEXT NOT NULL, design_snapshot_json TEXT NOT NULL, compile_snapshot_json TEXT NOT NULL, compiler_version TEXT NOT NULL, created_at TEXT NOT NULL);
+    `);
+    legacy.close();
+
+    const migrated = createPromptBuilderService(legacyPath);
+    migrated.close();
+    const inspected = new BetterSqlite3(legacyPath);
+    const imageColumns = (inspected.prepare("PRAGMA table_info(image_designs)").all() as Array<{ name: string }>).map(({ name }) => name);
+    const versionColumns = (inspected.prepare("PRAGMA table_info(prompt_versions)").all() as Array<{ name: string }>).map(({ name }) => name);
+    inspected.close();
+
+    expect(imageColumns).toContain("polished_prompt");
+    expect(versionColumns).toContain("polished_prompt");
+  });
+
   it("persists project renames, duplicates, product profiles, and design autosaves", () => {
     const project = service.createProject({ name: "Summer launch" });
     service.renameProject(project.id, { name: "Summer launch 2026" });
@@ -390,6 +410,30 @@ describe("PromptBuilderService persistence", () => {
     expect(() => service.savePolishedVersion(design.id, "polished", design.revision, service.compile(design.id).prompt))
       .toThrowError(expect.objectContaining({ code: "STALE_REVISION" }));
     expect(service.listVersions(design.id)).toHaveLength(0);
+  });
+
+  it("persists accepted polish explicitly and clears it only after a real design edit", () => {
+    const project = service.createProject({ name: "Persisted polish" });
+    service.upsertProductProfile(project.id, { facts });
+    const design = service.createDesign(project.id, { name: "Polish", selectedModuleIds: ["purpose_amazon_listing"] });
+    const deterministic = service.compileEnvelope(design.id);
+    const polished = `${deterministic.compile.prompt}\nPolished conclusion.`;
+
+    const saved = service.savePolishedVersion(design.id, polished, deterministic.revision, deterministic.compile.prompt);
+    expect(saved.design.polishedPrompt).toBe(polished);
+    expect(saved.design.custom).toEqual({});
+    expect(saved.version.polishedPrompt).toBe(polished);
+    expect(saved.version.compileSnapshot.prompt).toBe(deterministic.compile.prompt);
+
+    const identical = service.autosaveDesign(design.id, {
+      selectedModuleIds: saved.design.selectedModuleIds,
+      parameters: saved.design.parameters,
+      custom: saved.design.custom,
+    }, saved.revision);
+    expect(identical.polishedPrompt).toBe(polished);
+
+    const changed = service.autosaveDesign(design.id, { parameters: { width: 1600 } }, identical.revision);
+    expect(changed.polishedPrompt).toBeNull();
   });
 
   it("updates a profile without inserting, replacing, or deleting legacy reference rows", () => {

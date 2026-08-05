@@ -93,7 +93,12 @@ const storedModuleSchema = z.object({
   definition: promptModuleDefinitionSchema,
 });
 const productSnapshotSchema = productProfileSchema;
-const designSnapshotSchema = designCreateSchema.extend({ id: z.string(), projectId: z.string(), revision: z.number().int().nonnegative().default(0) });
+const designSnapshotSchema = designCreateSchema.extend({
+  id: z.string(),
+  projectId: z.string(),
+  polishedPrompt: z.string().nullable().default(null),
+  revision: z.number().int().nonnegative().default(0),
+});
 
 export type ReferenceImage = z.infer<typeof referenceImageSchema>;
 export type ProductProfile = z.infer<typeof productProfileSchema>;
@@ -130,6 +135,7 @@ export interface PromptVersion {
   moduleSnapshot: ModuleVersionSnapshot[];
   designSnapshot: DesignSnapshot;
   compileSnapshot: CompileResult;
+  polishedPrompt: string | null;
   compilerVersion: string;
   createdAt: string;
 }
@@ -242,6 +248,8 @@ export class PromptBuilderService {
     for (const [name, definition] of additions) if (!imageColumns.has(name)) this.sqlite.exec(`ALTER TABLE reference_images ADD COLUMN ${name} ${definition}`);
     if (!columns("product_profiles").has("ai_candidates_json")) this.sqlite.exec("ALTER TABLE product_profiles ADD COLUMN ai_candidates_json TEXT NOT NULL DEFAULT '[]'");
     if (!columns("image_designs").has("revision")) this.sqlite.exec("ALTER TABLE image_designs ADD COLUMN revision INTEGER NOT NULL DEFAULT 0");
+    if (!columns("image_designs").has("polished_prompt")) this.sqlite.exec("ALTER TABLE image_designs ADD COLUMN polished_prompt TEXT");
+    if (!columns("prompt_versions").has("polished_prompt")) this.sqlite.exec("ALTER TABLE prompt_versions ADD COLUMN polished_prompt TEXT");
   }
 
   close(): void {
@@ -555,6 +563,7 @@ export class PromptBuilderService {
       selectedModuleIdsJson: JSON.stringify(parsed.selectedModuleIds),
       parametersJson: JSON.stringify(parsed.parameters),
       customJson: JSON.stringify(parsed.custom),
+      polishedPrompt: null,
       revision: 0,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -572,6 +581,7 @@ export class PromptBuilderService {
       selectedModuleIds: JSON.parse(row.selectedModuleIdsJson),
       parameters: JSON.parse(row.parametersJson),
       custom: JSON.parse(row.customJson),
+      polishedPrompt: row.polishedPrompt,
       revision: row.revision,
     });
   }
@@ -585,11 +595,15 @@ export class PromptBuilderService {
   private updateDesignWithCas(id: string, patch: z.input<typeof designPatchSchema>, expectedRevision: number): DesignSnapshot {
     const current = this.getDesign(id);
     const parsed = designPatchSchema.parse(patch);
+    const contentChanged = (parsed.selectedModuleIds !== undefined && JSON.stringify(parsed.selectedModuleIds) !== JSON.stringify(current.selectedModuleIds))
+      || (parsed.parameters !== undefined && JSON.stringify(parsed.parameters) !== JSON.stringify(current.parameters))
+      || (parsed.custom !== undefined && JSON.stringify(parsed.custom) !== JSON.stringify(current.custom));
     const updated = this.db.update(imageDesigns).set({
       name: parsed.name ?? current.name,
       selectedModuleIdsJson: JSON.stringify(parsed.selectedModuleIds ?? current.selectedModuleIds),
       parametersJson: JSON.stringify(parsed.parameters ?? current.parameters),
       customJson: JSON.stringify(parsed.custom ?? current.custom),
+      polishedPrompt: contentChanged ? null : current.polishedPrompt,
       revision: expectedRevision + 1,
       updatedAt: now(),
     }).where(and(eq(imageDesigns.id, id), eq(imageDesigns.revision, expectedRevision))).run();
@@ -667,11 +681,12 @@ export class PromptBuilderService {
         moduleSnapshot: modules,
         designSnapshot: design,
         compileSnapshot,
+        polishedPrompt: design.polishedPrompt,
       });
     });
   }
 
-  private insertVersion(input: Omit<PromptVersion, "id" | "compilerVersion" | "createdAt">): PromptVersion {
+  private insertVersion(input: Omit<PromptVersion, "id" | "compilerVersion" | "createdAt" | "polishedPrompt"> & { polishedPrompt?: string | null }): PromptVersion {
     if (input.compileSnapshot.errors.length) throw new ServiceError("HARD_CONSTRAINTS", 422, "Design has hard constraint errors");
     const id = randomUUID();
     const createdAt = now();
@@ -683,6 +698,7 @@ export class PromptBuilderService {
       moduleSnapshotJson: JSON.stringify(storedModuleSchema.array().parse(input.moduleSnapshot)),
       designSnapshotJson: JSON.stringify(designSnapshotSchema.parse(input.designSnapshot)),
       compileSnapshotJson: JSON.stringify(compileResultSchema.parse(input.compileSnapshot)),
+      polishedPrompt: input.polishedPrompt ?? null,
       compilerVersion: COMPILER_VERSION,
       createdAt,
     }).run();
@@ -700,6 +716,7 @@ export class PromptBuilderService {
       moduleSnapshot: parseJson(row.moduleSnapshotJson, storedModuleSchema.array()),
       designSnapshot: parseJson(row.designSnapshotJson, designSnapshotSchema),
       compileSnapshot: parseJson(row.compileSnapshotJson, compileResultSchema),
+      polishedPrompt: row.polishedPrompt,
       compilerVersion: row.compilerVersion,
       createdAt: row.createdAt,
     };
@@ -740,6 +757,7 @@ export class PromptBuilderService {
 
   savePolishedVersion(designId: string, polishedPrompt: string, expectedRevision: number, basePrompt: string) {
     return this.atomic(() => {
+      const parsedPolishedPrompt = z.string().trim().min(1).max(100_000).parse(polishedPrompt);
       const current = this.getDesign(designId);
       const product = this.getProductProfile(current.projectId);
       const selected = new Set(current.selectedModuleIds);
@@ -749,9 +767,13 @@ export class PromptBuilderService {
       if (current.revision !== expectedRevision || this.compileSnapshots(current, product, modules).prompt !== basePrompt) {
         throw new ServiceError("STALE_REVISION", 409, "Design or compile context changed during AI polish");
       }
-      const design = this.updateDesignWithCas(designId, {
-        custom: { ...current.custom, aiPolishedPrompt: polishedPrompt },
-      }, expectedRevision);
+      const updated = this.db.update(imageDesigns).set({
+        polishedPrompt: parsedPolishedPrompt,
+        revision: expectedRevision + 1,
+        updatedAt: now(),
+      }).where(and(eq(imageDesigns.id, designId), eq(imageDesigns.revision, expectedRevision))).run();
+      if (updated.changes !== 1) throw new ServiceError("STALE_REVISION", 409, "Design revision is stale");
+      const design = this.getDesign(designId);
       const compile = this.compileSnapshots(design, product, modules);
       const latest = this.db.select().from(promptVersions).where(eq(promptVersions.designId, designId))
         .orderBy(desc(promptVersions.versionNumber)).get();
@@ -762,6 +784,7 @@ export class PromptBuilderService {
         moduleSnapshot: modules,
         designSnapshot: design,
         compileSnapshot: compile,
+        polishedPrompt: parsedPolishedPrompt,
       });
       return { designId, revision: design.revision, design, compile, version };
     });
