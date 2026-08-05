@@ -132,12 +132,13 @@ function parseJson<T>(value: string, schema: z.ZodType<T>): T {
 function safeParameters(value: Record<string, z.infer<typeof z.json>>): Record<string, z.infer<typeof z.json>> {
   const isSensitiveKey = (key: string): boolean => {
     const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, "");
-    return normalized === "authorization"
-      || normalized.endsWith("apikey")
-      || normalized.endsWith("privatekey")
-      || normalized.endsWith("password")
-      || normalized.endsWith("secret")
-      || normalized.endsWith("token");
+    return normalized.includes("authorization")
+      || normalized.includes("apikey")
+      || normalized.includes("privatekey")
+      || normalized.includes("password")
+      || normalized.includes("secret")
+      || normalized.endsWith("token")
+      || normalized.endsWith("cookie");
   };
   const clean = (input: z.infer<typeof z.json>): z.infer<typeof z.json> => {
     if (Array.isArray(input)) return input.map(clean);
@@ -161,6 +162,7 @@ export class PromptBuilderService {
     mkdirSync(dirname(databasePath), { recursive: true });
     this.sqlite = new BetterSqlite3(databasePath);
     this.sqlite.pragma("foreign_keys = ON");
+    this.sqlite.pragma("busy_timeout = 5000");
     this.sqlite.exec(readFileSync(join(process.cwd(), "drizzle", "0000_initial.sql"), "utf8"));
     this.db = drizzle(this.sqlite);
     this.seedModules();
@@ -168,6 +170,10 @@ export class PromptBuilderService {
 
   close(): void {
     this.sqlite.close();
+  }
+
+  private atomic<T>(operation: () => T): T {
+    return this.sqlite.transaction(operation).immediate();
   }
 
   private seedModules(): void {
@@ -210,47 +216,51 @@ export class PromptBuilderService {
   }
 
   duplicateProject(id: string, input?: { name?: string }): Project {
-    const source = this.getProject(id);
-    const duplicate = this.createProject({ name: input?.name ?? `${source.name} copy` });
-    const profile = this.db.select().from(productProfiles).where(eq(productProfiles.projectId, id)).get();
-    if (profile) {
-      this.upsertProductProfile(duplicate.id, this.getProductProfile(id));
-    }
-    const designs = this.db.select().from(imageDesigns).where(eq(imageDesigns.projectId, id)).all();
-    for (const design of designs) {
-      this.createDesign(duplicate.id, {
-        name: design.name,
-        selectedModuleIds: parseJson(design.selectedModuleIdsJson, selectedModuleIdsSchema),
-        parameters: parseJson(design.parametersJson, jsonObjectSchema),
-        custom: parseJson(design.customJson, jsonObjectSchema),
-      });
-    }
-    return duplicate;
+    return this.atomic(() => {
+      const source = this.getProject(id);
+      const duplicate = this.createProject({ name: input?.name ?? `${source.name} copy` });
+      const profile = this.db.select().from(productProfiles).where(eq(productProfiles.projectId, id)).get();
+      if (profile) {
+        this.upsertProductProfile(duplicate.id, this.getProductProfile(id));
+      }
+      const designs = this.db.select().from(imageDesigns).where(eq(imageDesigns.projectId, id)).all();
+      for (const design of designs) {
+        this.createDesign(duplicate.id, {
+          name: design.name,
+          selectedModuleIds: parseJson(design.selectedModuleIdsJson, selectedModuleIdsSchema),
+          parameters: parseJson(design.parametersJson, jsonObjectSchema),
+          custom: parseJson(design.customJson, jsonObjectSchema),
+        });
+      }
+      return duplicate;
+    });
   }
 
   upsertProductProfile(projectId: string, input: ProductProfile): ProductProfile {
-    this.getProject(projectId);
     const profile = productProfileInputSchema.parse(input);
-    const timestamp = now();
-    this.db.insert(productProfiles).values({
-      projectId,
-      factsJson: JSON.stringify(profile.facts),
-      updatedAt: timestamp,
-    }).onConflictDoUpdate({
-      target: productProfiles.projectId,
-      set: { factsJson: JSON.stringify(profile.facts), updatedAt: timestamp },
-    }).run();
-    this.db.delete(referenceImages).where(eq(referenceImages.projectId, projectId)).run();
-    if (profile.referenceImages.length) {
-      this.db.insert(referenceImages).values(profile.referenceImages.map((image) => ({
-        id: randomUUID(),
+    return this.atomic(() => {
+      this.getProject(projectId);
+      const timestamp = now();
+      this.db.insert(productProfiles).values({
         projectId,
-        identifier: image.identifier,
-        filename: image.filename,
-        createdAt: timestamp,
-      }))).run();
-    }
-    return this.getProductProfile(projectId);
+        factsJson: JSON.stringify(profile.facts),
+        updatedAt: timestamp,
+      }).onConflictDoUpdate({
+        target: productProfiles.projectId,
+        set: { factsJson: JSON.stringify(profile.facts), updatedAt: timestamp },
+      }).run();
+      this.db.delete(referenceImages).where(eq(referenceImages.projectId, projectId)).run();
+      if (profile.referenceImages.length) {
+        this.db.insert(referenceImages).values(profile.referenceImages.map((image) => ({
+          id: randomUUID(),
+          projectId,
+          identifier: image.identifier,
+          filename: image.filename,
+          createdAt: timestamp,
+        }))).run();
+      }
+      return this.getProductProfile(projectId);
+    });
   }
 
   getProductProfile(projectId: string): ProductProfile {
@@ -290,8 +300,12 @@ export class PromptBuilderService {
         createdAt: timestamp,
         updatedAt: timestamp,
       }).run();
-    } catch {
-      throw new ServiceError("MODULE_ID_EXISTS", 409, "Module ID already exists");
+    } catch (error) {
+      if (error instanceof BetterSqlite3.SqliteError
+        && (error.code === "SQLITE_CONSTRAINT_PRIMARYKEY" || error.code === "SQLITE_CONSTRAINT_UNIQUE")) {
+        throw new ServiceError("MODULE_ID_EXISTS", 409, "Module ID already exists");
+      }
+      throw error;
     }
     return this.getModule(definition.id);
   }
@@ -392,31 +406,41 @@ export class PromptBuilderService {
   compile(id: string): CompileResult {
     const design = this.getDesign(id);
     const profile = this.getProductProfile(design.projectId);
-    const catalog = this.listModules().map((module) => module.definition);
+    const modules = this.listModules().map(({ kind, version, definition }) => ({ kind, version, definition }));
+    return this.compileSnapshots(design, profile, modules);
+  }
+
+  private compileSnapshots(
+    design: DesignSnapshot,
+    profile: ProductProfile,
+    modules: ModuleVersionSnapshot[],
+  ): CompileResult {
     return compileResultSchema.parse(compilePrompt({
       facts: profile.facts,
       selectedModuleIds: design.selectedModuleIds,
       customModules: [],
-    }, catalog));
+    }, modules.map((module) => module.definition)));
   }
 
   saveVersion(designId: string): PromptVersion {
-    const design = this.getDesign(designId);
-    const product = this.getProductProfile(design.projectId);
-    const selected = new Set(design.selectedModuleIds);
-    const modules = this.listModules({ includeDisabled: true })
-      .filter((module) => selected.has(module.definition.id))
-      .map(({ kind, version, definition }) => ({ kind, version, definition }));
-    const compileSnapshot = this.compile(designId);
-    const latest = this.db.select().from(promptVersions).where(eq(promptVersions.designId, designId))
-      .orderBy(desc(promptVersions.versionNumber)).get();
-    return this.insertVersion({
-      designId,
-      versionNumber: (latest?.versionNumber ?? 0) + 1,
-      productSnapshot: product,
-      moduleSnapshot: modules,
-      designSnapshot: design,
-      compileSnapshot,
+    return this.atomic(() => {
+      const design = this.getDesign(designId);
+      const product = this.getProductProfile(design.projectId);
+      const selected = new Set(design.selectedModuleIds);
+      const modules = this.listModules()
+        .filter((module) => selected.has(module.definition.id))
+        .map(({ kind, version, definition }) => ({ kind, version, definition }));
+      const compileSnapshot = this.compileSnapshots(design, product, modules);
+      const latest = this.db.select().from(promptVersions).where(eq(promptVersions.designId, designId))
+        .orderBy(desc(promptVersions.versionNumber)).get();
+      return this.insertVersion({
+        designId,
+        versionNumber: (latest?.versionNumber ?? 0) + 1,
+        productSnapshot: product,
+        moduleSnapshot: modules,
+        designSnapshot: design,
+        compileSnapshot,
+      });
     });
   }
 
@@ -461,40 +485,56 @@ export class PromptBuilderService {
   }
 
   restoreVersion(designId: string, versionId: string): PromptVersion {
-    this.getDesign(designId);
-    const source = this.getVersion(versionId);
-    if (source.designId !== designId) {
-      throw new ServiceError("VERSION_NOT_FOUND", 404, "Version not found for design");
-    }
-    this.autosaveDesign(designId, {
-      name: source.designSnapshot.name,
-      selectedModuleIds: source.designSnapshot.selectedModuleIds,
-      parameters: source.designSnapshot.parameters,
-      custom: source.designSnapshot.custom,
-    });
-    const latest = this.listVersions(designId)[0];
-    return this.insertVersion({
-      designId,
-      versionNumber: (latest?.versionNumber ?? 0) + 1,
-      productSnapshot: source.productSnapshot,
-      moduleSnapshot: source.moduleSnapshot,
-      designSnapshot: { ...source.designSnapshot, id: designId },
-      compileSnapshot: source.compileSnapshot,
+    return this.atomic(() => {
+      this.getDesign(designId);
+      const source = this.getVersion(versionId);
+      if (source.designId !== designId) {
+        throw new ServiceError("VERSION_NOT_FOUND", 404, "Version not found for design");
+      }
+      this.autosaveDesign(designId, {
+        name: source.designSnapshot.name,
+        selectedModuleIds: source.designSnapshot.selectedModuleIds,
+        parameters: source.designSnapshot.parameters,
+        custom: source.designSnapshot.custom,
+      });
+      const latest = this.listVersions(designId)[0];
+      return this.insertVersion({
+        designId,
+        versionNumber: (latest?.versionNumber ?? 0) + 1,
+        productSnapshot: source.productSnapshot,
+        moduleSnapshot: source.moduleSnapshot,
+        designSnapshot: { ...source.designSnapshot, id: designId },
+        compileSnapshot: source.compileSnapshot,
+      });
     });
   }
 
   exportVersion(versionId: string): VersionExport {
     const version = this.getVersion(versionId);
+    const compile = {
+      prompt: version.compileSnapshot.prompt,
+      sections: version.compileSnapshot.sections.map(({ title, content }) => ({ title, content })),
+      warnings: version.compileSnapshot.warnings.map(({ code, message, moduleIds }) => ({
+        code, message, moduleIds: [...moduleIds],
+      })),
+      errors: version.compileSnapshot.errors.map(({ code, message, moduleIds }) => ({
+        code, message, moduleIds: [...moduleIds],
+      })),
+    };
     return {
       formatVersion: 1,
-      facts: version.productSnapshot.facts,
+      facts: productFactsSchema.parse(version.productSnapshot.facts),
       referenceImageIdentifiers: version.productSnapshot.referenceImages.map((image) => image.identifier),
-      modules: version.moduleSnapshot,
+      modules: version.moduleSnapshot.map(({ kind, version: moduleVersion, definition }) => ({
+        kind,
+        version: moduleVersion,
+        definition: promptModuleDefinitionSchema.parse(definition),
+      })),
       parameters: safeParameters(version.designSnapshot.parameters),
       custom: safeParameters(version.designSnapshot.custom),
-      compile: version.compileSnapshot,
-      errors: version.compileSnapshot.errors,
-      warnings: version.compileSnapshot.warnings,
+      compile,
+      errors: compile.errors,
+      warnings: compile.warnings,
       timestamp: version.createdAt,
       compilerVersion: version.compilerVersion,
     };

@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const projects = sqliteTable("projects", {
   id: text("id").primaryKey(),
@@ -52,5 +52,6 @@ export const promptVersions = sqliteTable("prompt_versions", {
   compileSnapshotJson: text("compile_snapshot_json").notNull(),
   compilerVersion: text("compiler_version").notNull(),
   createdAt: text("created_at").notNull(),
-});
-
+}, (table) => [
+  uniqueIndex("prompt_versions_design_version_unique").on(table.designId, table.versionNumber),
+]);

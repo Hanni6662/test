@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import BetterSqlite3 from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ProductFacts } from "@/domain/types";
 import { ServiceError, createPromptBuilderService, type PromptBuilderService } from "./service";
@@ -17,11 +18,13 @@ const facts: ProductFacts = {
 
 describe("PromptBuilderService persistence", () => {
   let directory: string;
+  let databasePath: string;
   let service: PromptBuilderService;
 
   beforeEach(() => {
     directory = mkdtempSync(join(tmpdir(), "prompt-builder-"));
-    service = createPromptBuilderService(join(directory, "app.db"));
+    databasePath = join(directory, "app.db");
+    service = createPromptBuilderService(databasePath);
   });
 
   afterEach(() => {
@@ -143,6 +146,112 @@ describe("PromptBuilderService persistence", () => {
     ]);
   });
 
+  it("rolls back a profile and its reference images when replacement insertion fails", () => {
+    const project = service.createProject({ name: "Profile rollback" });
+    service.upsertProductProfile(project.id, {
+      facts,
+      referenceImages: [{ identifier: "sha256:old", filename: "old.png" }],
+    });
+    const injector = new BetterSqlite3(databasePath);
+    injector.exec(`CREATE TRIGGER fail_reference_insert
+      BEFORE INSERT ON reference_images BEGIN SELECT RAISE(ABORT, 'injected failure'); END`);
+    injector.close();
+
+    expect(() => service.upsertProductProfile(project.id, {
+      facts: { ...facts, title: "Must roll back" },
+      referenceImages: [{ identifier: "sha256:new", filename: "new.png" }],
+    })).toThrow("injected failure");
+
+    expect(service.getProductProfile(project.id)).toMatchObject({
+      facts: { title: facts.title },
+      referenceImages: [{ identifier: "sha256:old", filename: "old.png" }],
+    });
+  });
+
+  it("rolls back a duplicated project when copying child rows fails", () => {
+    const source = service.createProject({ name: "Duplicate rollback" });
+    service.upsertProductProfile(source.id, {
+      facts,
+      referenceImages: [{ identifier: "sha256:source", filename: "source.png" }],
+    });
+    const injector = new BetterSqlite3(databasePath);
+    injector.exec(`CREATE TRIGGER fail_duplicate_reference
+      BEFORE INSERT ON reference_images WHEN NEW.project_id <> '${source.id}'
+      BEGIN SELECT RAISE(ABORT, 'injected duplicate failure'); END`);
+    injector.close();
+
+    expect(() => service.duplicateProject(source.id, { name: "Partial copy" }))
+      .toThrow("injected duplicate failure");
+    expect(service.listProjects().map((project) => project.name)).toEqual(["Duplicate rollback"]);
+  });
+
+  it("rolls back a restored draft when inserting its new version fails", () => {
+    const project = service.createProject({ name: "Restore rollback" });
+    service.upsertProductProfile(project.id, { facts, referenceImages: [] });
+    const design = service.createDesign(project.id, {
+      name: "Restore rollback design",
+      selectedModuleIds: ["purpose_amazon_listing"],
+      parameters: { width: 1000 },
+      custom: {},
+    });
+    const original = service.saveVersion(design.id);
+    service.autosaveDesign(design.id, { parameters: { width: 2000 } });
+    const injector = new BetterSqlite3(databasePath);
+    injector.exec(`CREATE TRIGGER fail_restore_version
+      BEFORE INSERT ON prompt_versions BEGIN SELECT RAISE(ABORT, 'injected restore failure'); END`);
+    injector.close();
+
+    expect(() => service.restoreVersion(design.id, original.id)).toThrow("injected restore failure");
+    expect(service.getDesign(design.id).parameters).toEqual({ width: 2000 });
+    expect(service.listVersions(design.id)).toHaveLength(1);
+  });
+
+  it("compiles a saved version directly from the snapshots captured for that version", () => {
+    const project = service.createProject({ name: "Atomic capture" });
+    service.upsertProductProfile(project.id, { facts, referenceImages: [] });
+    const design = service.createDesign(project.id, {
+      name: "Atomic design",
+      selectedModuleIds: ["purpose_amazon_listing"],
+      parameters: {},
+      custom: {},
+    });
+    service.compile = () => {
+      throw new Error("saveVersion must not call the rereading compile method");
+    };
+
+    const version = service.saveVersion(design.id);
+
+    expect(version.productSnapshot.facts.title).toBe(facts.title);
+    expect(version.compileSnapshot.prompt).toContain(`Title: ${facts.title}`);
+  });
+
+  it("allocates distinct continuous version numbers across service instances", async () => {
+    const project = service.createProject({ name: "Concurrent versions" });
+    service.upsertProductProfile(project.id, { facts, referenceImages: [] });
+    const design = service.createDesign(project.id, {
+      name: "Concurrent design",
+      selectedModuleIds: ["purpose_amazon_listing"],
+      parameters: {},
+      custom: {},
+    });
+    const secondService = createPromptBuilderService(databasePath);
+    try {
+      const versions = await Promise.all([
+        Promise.resolve().then(() => service.saveVersion(design.id)),
+        Promise.resolve().then(() => secondService.saveVersion(design.id)),
+      ]);
+      expect(versions.map((version) => version.versionNumber).sort()).toEqual([1, 2]);
+      for (const version of versions) {
+        expect(version.compileSnapshot.prompt).toContain(version.productSnapshot.facts.title);
+        for (const promptModule of version.moduleSnapshot) {
+          expect(version.compileSnapshot.prompt).toContain(promptModule.definition.content);
+        }
+      }
+    } finally {
+      secondService.close();
+    }
+  });
+
   it("exports a stable, safe versioned JSON document", () => {
     const project = service.createProject({ name: "Export" });
     service.upsertProductProfile(project.id, {
@@ -156,6 +265,11 @@ describe("PromptBuilderService persistence", () => {
         width: 1024,
         apiKey: "must-not-export",
         clientSecret: "client-secret-value",
+        authorizationHeader: "bearer secret",
+        apiSecretKey: "api-secret-key-value",
+        passwordHash: "password-hash-value",
+        secretValue: "secret-value",
+        sessionCookie: "session-cookie-value",
         nested: {
           access_token: "access-token-value",
           tokenCount: 37,
@@ -205,6 +319,11 @@ describe("PromptBuilderService persistence", () => {
     expect(json).not.toContain("refresh-token-value");
     expect(json).not.toContain("private-key-value");
     expect(json).not.toContain("custom-client-secret");
+    expect(json).not.toContain("bearer secret");
+    expect(json).not.toContain("api-secret-key-value");
+    expect(json).not.toContain("password-hash-value");
+    expect(json).not.toContain("secret-value");
+    expect(json).not.toContain("session-cookie-value");
     expect(json).toContain("tokenCount");
     expect(json).not.toContain("imageData");
   });
