@@ -2,7 +2,7 @@ import type { PromptModuleDefinition } from "./types";
 
 // A deliberately small, hand-curated catalog distilled from the reference notes.
 // The source document is not parsed or loaded at runtime.
-export const seedPromptModules: readonly PromptModuleDefinition[] = [
+const curatedPromptModules: PromptModuleDefinition[] = [
   {
     id: "purpose_amazon_aplus",
     label: "Amazon A+ content",
@@ -56,24 +56,28 @@ export const seedPromptModules: readonly PromptModuleDefinition[] = [
     label: "Back view",
     category: "camera",
     content: "Show a faithful straight-on back view based only on supplied back-view evidence.",
+    capabilities: ["view:back"],
   },
   {
     id: "scene_white_background",
     label: "Pure white background",
     category: "scene",
     content: "Place the product on a seamless pure white background (RGB 255, 255, 255).",
+    capabilities: ["background:white"],
   },
   {
     id: "scene_garden_party",
     label: "Garden party",
     category: "scene",
     content: "Stage a bright summer garden-party setting with soft greenery kept secondary to the garment.",
+    capabilities: ["scene:environment"],
   },
   {
     id: "scene_cozy_playroom",
     label: "Cozy playroom",
     category: "scene",
     content: "Use a tidy, warm children's playroom that feels believable and does not obscure the clothing.",
+    capabilities: ["scene:environment"],
   },
   {
     id: "style_clean_commercial",
@@ -116,12 +120,14 @@ export const seedPromptModules: readonly PromptModuleDefinition[] = [
     label: "Title headline",
     category: "text",
     content: "Reserve a clean text-safe area and add one short product-title headline with exact spelling.",
+    capabilities: ["text:title"],
   },
   {
     id: "text_no_text",
     label: "No text",
     category: "text",
     content: "Do not render any words, letters, badges, logos, watermarks, or typography.",
+    capabilities: ["text:none"],
   },
   {
     id: "output_amazon_listing",
@@ -143,3 +149,13 @@ export const seedPromptModules: readonly PromptModuleDefinition[] = [
   },
 ];
 
+export const seedPromptModules: readonly PromptModuleDefinition[] = Object.freeze(
+  curatedPromptModules.map((module) =>
+    Object.freeze({
+      ...module,
+      ...(module.capabilities
+        ? { capabilities: Object.freeze([...module.capabilities]) }
+        : {}),
+    }),
+  ),
+);

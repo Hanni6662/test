@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { seedPromptModules } from "./seed-modules";
+import { promptModuleDefinitionSchema } from "./types";
 
 describe("seedPromptModules", () => {
   it("covers every supported module category", () => {
@@ -35,5 +36,18 @@ describe("seedPromptModules", () => {
         "scene_white_background",
       ]),
     );
+  });
+
+  it("is schema-valid, globally unique, and deeply immutable", () => {
+    expect(() => promptModuleDefinitionSchema.array().parse(seedPromptModules)).not.toThrow();
+    const ids = seedPromptModules.map((module) => module.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(Object.isFrozen(seedPromptModules)).toBe(true);
+    expect(seedPromptModules.every((module) => Object.isFrozen(module))).toBe(true);
+    expect(
+      seedPromptModules.every(
+        (module) => !module.capabilities || Object.isFrozen(module.capabilities),
+      ),
+    ).toBe(true);
   });
 });

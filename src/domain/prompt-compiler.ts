@@ -5,6 +5,7 @@ import {
   type CompileResult,
   type ImageDesignSnapshot,
   type ModuleCategory,
+  type ModuleCapability,
   type ProductFacts,
   type PromptModuleDefinition,
 } from "./types";
@@ -52,11 +53,33 @@ function byCanonicalOrder(left: PromptModuleDefinition, right: PromptModuleDefin
   const categoryDifference =
     (CATEGORY_ORDER.get(left.category) ?? Number.MAX_SAFE_INTEGER) -
     (CATEGORY_ORDER.get(right.category) ?? Number.MAX_SAFE_INTEGER);
-  return categoryDifference || left.id.localeCompare(right.id, "en");
+  if (categoryDifference) return categoryDifference;
+  return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
 }
 
 function issue(code: string, message: string, moduleIds: string[]): CompileIssue {
-  return { code, message, moduleIds: [...moduleIds].sort() };
+  return {
+    code,
+    message,
+    moduleIds: [...new Set(moduleIds)].sort((left, right) =>
+      left < right ? -1 : left > right ? 1 : 0,
+    ),
+  };
+}
+
+function modulesWithCapability(
+  modules: readonly PromptModuleDefinition[],
+  capability: ModuleCapability,
+): PromptModuleDefinition[] {
+  return modules.filter((module) => module.capabilities?.includes(capability));
+}
+
+function assertUniqueModuleIds(modules: readonly PromptModuleDefinition[]): void {
+  const seen = new Set<string>();
+  for (const definition of modules) {
+    if (seen.has(definition.id)) throw new Error(`Duplicate module ID: ${definition.id}`);
+    seen.add(definition.id);
+  }
 }
 
 export function compilePrompt(
@@ -65,7 +88,11 @@ export function compilePrompt(
 ): CompileResult {
   const snapshot = imageDesignSnapshotSchema.parse(snapshotInput);
   const catalog = promptModuleDefinitionSchema.array().parse(catalogInput);
+  const allModules = [...catalog, ...snapshot.customModules];
+  assertUniqueModuleIds(allModules);
+
   const selectedIds = new Set(snapshot.selectedModuleIds);
+  const knownIds = new Set(allModules.map((module) => module.id));
   const selectedModules = [
     ...catalog.filter((module) => selectedIds.has(module.id)),
     ...snapshot.customModules,
@@ -73,36 +100,49 @@ export function compilePrompt(
 
   const warnings: CompileIssue[] = [];
   const errors: CompileIssue[] = [];
-  const selectedSceneIds = selectedModules
-    .filter((module) => module.category === "scene")
-    .map((module) => module.id);
+  const unknownIds = [...selectedIds].filter((id) => !knownIds.has(id));
+  if (unknownIds.length) {
+    errors.push(
+      issue(
+        "UNKNOWN_MODULE_ID",
+        "Every selected module ID must resolve to a catalog or custom module.",
+        unknownIds,
+      ),
+    );
+  }
 
-  if (selectedIds.has("scene_white_background") && selectedSceneIds.some((id) => id !== "scene_white_background")) {
+  const whiteBackgroundModules = modulesWithCapability(selectedModules, "background:white");
+  const environmentModules = modulesWithCapability(selectedModules, "scene:environment");
+
+  if (whiteBackgroundModules.length && environmentModules.length) {
     warnings.push(
       issue(
         "WHITE_BACKGROUND_WITH_SCENE",
         "Pure white background conflicts with an environmental scene; choose one visual direction.",
-        selectedSceneIds,
+        [...whiteBackgroundModules, ...environmentModules].map((module) => module.id),
       ),
     );
   }
 
-  if (selectedIds.has("text_no_text") && selectedIds.has("text_title_headline")) {
+  const noTextModules = modulesWithCapability(selectedModules, "text:none");
+  const titleTextModules = modulesWithCapability(selectedModules, "text:title");
+  if (noTextModules.length && titleTextModules.length) {
     warnings.push(
       issue(
         "NO_TEXT_WITH_TITLE",
         "No-text output conflicts with the selected title headline.",
-        ["text_no_text", "text_title_headline"],
+        [...noTextModules, ...titleTextModules].map((module) => module.id),
       ),
     );
   }
 
-  if (selectedIds.has("camera_back_view") && !snapshot.facts.backViewEvidence) {
+  const backViewModules = modulesWithCapability(selectedModules, "view:back");
+  if (backViewModules.length && !snapshot.facts.backViewEvidence) {
     errors.push(
       issue(
         "BACK_VIEW_EVIDENCE_REQUIRED",
         "A back view cannot be generated without verified back-view product evidence.",
-        ["camera_back_view"],
+        backViewModules.map((module) => module.id),
       ),
     );
   }
@@ -113,7 +153,7 @@ export function compilePrompt(
     const categories = new Set(SECTION_CATEGORIES[index]);
     const content = selectedModules
       .filter((module) => categories.has(module.category))
-      .map((module) => module.content)
+      .map((module) => `- ${module.content}`)
       .join("\n");
     return { title, content: content || "No additional direction selected." };
   });
@@ -121,4 +161,3 @@ export function compilePrompt(
   const prompt = sections.map((section) => `## ${section.title}\n${section.content}`).join("\n\n");
   return { prompt, sections, warnings, errors };
 }
-
