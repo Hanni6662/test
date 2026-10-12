@@ -1,0 +1,30 @@
+# Apply after the clean Dify base Compose and image-generation definition.
+services:
+  api:
+    networks:
+      ssrf_proxy_network: null
+      default: null
+      real_link:
+        aliases: [visual-dify]
+  worker:
+    networks: [ssrf_proxy_network, default, real_link]
+  worker_beat:
+    networks: [ssrf_proxy_network, default, real_link]
+  ssrf_proxy:
+    networks: [ssrf_proxy_network, default, real_link]
+    volumes:
+      - type: bind
+        source: ${REAL_SQUID_TEMPLATE:?Set absolute template path}
+        target: /etc/squid/squid.conf.template
+  image-generation:
+    image: ${REAL_IMAGEGEN_IMAGE:?Use final fixed image identity}
+    env_file:
+      - ${REAL_IMAGE_ENV_FILE:?Set absolute private env path}
+    networks:
+      default: null
+      real_link:
+        aliases: [visual-image-generation]
+networks:
+  real_link:
+    external: true
+    name: ${REAL_LINK_NETWORK:-visual-real-link}
