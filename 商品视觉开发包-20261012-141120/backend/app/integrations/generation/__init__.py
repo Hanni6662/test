@@ -1,1 +1,0 @@
-"""Private generation adapters."""
