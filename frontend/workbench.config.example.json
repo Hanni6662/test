@@ -1,0 +1,8 @@
+{
+  "backendInstance": "localimg-dev01",
+  "difyProject": "chatflow",
+  "difyEnvFile": "chatflow/.env",
+  "runtimeEnvFile": "本地部署/真实接线与开发交接/runtime.env",
+  "backendOverlay": "本地部署/真实接线与开发交接/backend.runtime.example.yaml",
+  "difyOverlay": "本地部署/真实接线与开发交接/dify.runtime.example.yaml"
+}

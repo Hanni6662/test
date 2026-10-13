@@ -1,0 +1,2097 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Image Business Backend",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/health/live": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Live",
+        "operationId": "live_health_live_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Ready",
+        "operationId": "ready_health_ready_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/guest": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Enter Guest",
+        "operationId": "enter_guest_api_v1_auth_guest_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Me",
+        "operationId": "me_api_v1_auth_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/guest/refresh": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Refresh Guest",
+        "operationId": "refresh_guest_api_v1_auth_guest_refresh_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/guest/reset": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Reset Guest",
+        "operationId": "reset_guest_api_v1_auth_guest_reset_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Login",
+        "operationId": "login_api_v1_auth_login_post",
+        "responses": {
+          "503": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Logout",
+        "operationId": "logout_api_v1_auth_logout_post",
+        "responses": {
+          "503": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/quota": {
+      "get": {
+        "tags": [
+          "billing"
+        ],
+        "summary": "Quota",
+        "operationId": "quota_api_v1_quota_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DisabledFeatureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/billing/balance": {
+      "get": {
+        "tags": [
+          "billing"
+        ],
+        "summary": "Balance",
+        "operationId": "balance_api_v1_billing_balance_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DisabledFeatureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/billing/recharge-orders": {
+      "post": {
+        "tags": [
+          "billing"
+        ],
+        "summary": "Create Recharge Order",
+        "operationId": "create_recharge_order_api_v1_billing_recharge_orders_post",
+        "responses": {
+          "503": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reference-sets": {
+      "post": {
+        "tags": [
+          "references"
+        ],
+        "summary": "Upload Reference Set",
+        "operationId": "upload_reference_set_api_v1_reference_sets_post",
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferenceSetResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reference-sets/{reference_set_id}": {
+      "get": {
+        "tags": [
+          "references"
+        ],
+        "summary": "Get Reference Set",
+        "operationId": "get_reference_set_api_v1_reference_sets__reference_set_id__get",
+        "parameters": [
+          {
+            "name": "reference_set_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Reference Set Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferenceSetResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/recommendations": {
+      "post": {
+        "tags": [
+          "recommendations"
+        ],
+        "summary": "Create Recommendation",
+        "operationId": "create_recommendation_api_v1_recommendations_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecommendationCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecommendationAccepted"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/recommendations/{recommendation_id}": {
+      "get": {
+        "tags": [
+          "recommendations"
+        ],
+        "summary": "Get Recommendation",
+        "operationId": "get_recommendation_api_v1_recommendations__recommendation_id__get",
+        "parameters": [
+          {
+            "name": "recommendation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Recommendation Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecommendationResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/preferences": {
+      "post": {
+        "tags": [
+          "task-preferences"
+        ],
+        "summary": "Submit Preferences",
+        "operationId": "submit_preferences_api_v1_tasks__task_id__preferences_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromptPreferenceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptPreferenceAccepted"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks": {
+      "post": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Create Task",
+        "operationId": "create_task_api_v1_tasks_post",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskAccepted"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "List Tasks",
+        "operationId": "list_tasks_api_v1_tasks_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 256
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskHistoryPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}": {
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Get Task",
+        "operationId": "get_task_api_v1_tasks__task_id__get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/images/{image_id}/preview": {
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Get Task Preview",
+        "operationId": "get_task_preview_api_v1_tasks__task_id__images__image_id__preview_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "image_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Image Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/images/{image_id}/original": {
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Get Task Original",
+        "operationId": "get_task_original_api_v1_tasks__task_id__images__image_id__original_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "image_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Image Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "已校验的原图二进制下载",
+            "content": {
+              "image/jpeg": {},
+              "image/png": {},
+              "image/webp": {}
+            },
+            "headers": {
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Length": {
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Accept-Ranges": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "身份无效"
+          },
+          "404": {
+            "description": "原图不可用"
+          },
+          "503": {
+            "description": "原图暂不可用或下载额度已满"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/retry": {
+      "post": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Retry Failed Items",
+        "operationId": "retry_failed_items_api_v1_tasks__task_id__retry_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskRetryRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRetryAccepted"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AuthFeatures": {
+        "properties": {
+          "account_login": {
+            "type": "boolean",
+            "const": false,
+            "title": "Account Login",
+            "default": false
+          },
+          "billing": {
+            "type": "boolean",
+            "const": false,
+            "title": "Billing",
+            "default": false
+          },
+          "payments": {
+            "type": "boolean",
+            "const": false,
+            "title": "Payments",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "AuthFeatures"
+      },
+      "CustomPreference": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "const": "custom",
+            "title": "Mode"
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 3500,
+            "minLength": 1,
+            "title": "Text"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "mode",
+          "text"
+        ],
+        "title": "CustomPreference"
+      },
+      "DisabledFeatureResponse": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "DisabledFeatureResponse"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthStatus": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "live",
+              "ready",
+              "not_ready"
+            ],
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "HealthStatus"
+      },
+      "IdentityResponse": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "identity_kind": {
+            "type": "string",
+            "enum": [
+              "guest",
+              "member"
+            ],
+            "title": "Identity Kind"
+          },
+          "authenticated": {
+            "type": "boolean",
+            "const": true,
+            "title": "Authenticated",
+            "default": true
+          },
+          "features": {
+            "$ref": "#/components/schemas/AuthFeatures",
+            "default": {
+              "account_login": false,
+              "billing": false,
+              "payments": false
+            }
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "user_id",
+          "identity_kind"
+        ],
+        "title": "IdentityResponse"
+      },
+      "PreferenceChoice": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "A",
+              "B",
+              "C"
+            ],
+            "title": "Code"
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 3500,
+            "minLength": 1,
+            "title": "Text"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "text"
+        ],
+        "title": "PreferenceChoice"
+      },
+      "PreferenceFieldOptions": {
+        "properties": {
+          "choices": {
+            "items": {
+              "$ref": "#/components/schemas/PreferenceChoice"
+            },
+            "type": "array",
+            "maxItems": 3,
+            "minItems": 3,
+            "title": "Choices"
+          },
+          "allow_agent_design": {
+            "type": "boolean",
+            "title": "Allow Agent Design",
+            "default": true
+          },
+          "allow_custom": {
+            "type": "boolean",
+            "title": "Allow Custom",
+            "default": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "choices"
+        ],
+        "title": "PreferenceFieldOptions"
+      },
+      "PreferenceMode": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ],
+            "title": "Mode"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "mode"
+        ],
+        "title": "PreferenceMode"
+      },
+      "PromptPreferenceAccepted": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "replayed"
+            ],
+            "title": "Status"
+          },
+          "task_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Task Id"
+          },
+          "submission_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Submission Id"
+          },
+          "workflow_run_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Workflow Run Id"
+          },
+          "workflow_revision": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Workflow Revision"
+          },
+          "question_round": {
+            "type": "integer",
+            "maximum": 2.0,
+            "minimum": 1.0,
+            "title": "Question Round"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status",
+          "task_id",
+          "submission_id",
+          "workflow_run_id",
+          "workflow_revision",
+          "question_round"
+        ],
+        "title": "PromptPreferenceAccepted"
+      },
+      "PromptPreferenceRequest": {
+        "properties": {
+          "workflow_run_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Workflow Run Id"
+          },
+          "workflow_revision": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Workflow Revision"
+          },
+          "question_round": {
+            "type": "integer",
+            "maximum": 2.0,
+            "minimum": 1.0,
+            "title": "Question Round"
+          },
+          "answers": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/PreferenceMode"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CustomPreference"
+                    }
+                  ],
+                  "discriminator": {
+                    "propertyName": "mode",
+                    "mapping": {
+                      "A": "#/components/schemas/PreferenceMode",
+                      "B": "#/components/schemas/PreferenceMode",
+                      "C": "#/components/schemas/PreferenceMode",
+                      "D": "#/components/schemas/PreferenceMode",
+                      "custom": "#/components/schemas/CustomPreference"
+                    }
+                  }
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "亚马逊主图",
+                    "亚马逊高级A+",
+                    "TEMU",
+                    "TEMU服饰类",
+                    "TIKTOK",
+                    "淘宝",
+                    "京东",
+                    "拼多多",
+                    "1688"
+                  ]
+                }
+              ]
+            },
+            "type": "object",
+            "maxProperties": 5,
+            "minProperties": 1,
+            "title": "Answers"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "workflow_run_id",
+          "workflow_revision",
+          "question_round",
+          "answers"
+        ],
+        "title": "PromptPreferenceRequest",
+        "description": "One bounded answer to the currently open preference question."
+      },
+      "RecommendationAccepted": {
+        "properties": {
+          "recommendation_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Recommendation Id"
+          },
+          "status": {
+            "type": "string",
+            "const": "analyzing",
+            "title": "Status",
+            "default": "analyzing"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "recommendation_id"
+        ],
+        "title": "RecommendationAccepted"
+      },
+      "RecommendationCreateRequest": {
+        "properties": {
+          "reference_set_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Reference Set Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "reference_set_id"
+        ],
+        "title": "RecommendationCreateRequest"
+      },
+      "RecommendationPublicError": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "RECOMMENDATION_FAILED",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "const": "推荐分析暂时不可用，请稍后重试",
+            "title": "Message"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "RecommendationPublicError"
+      },
+      "RecommendationPublicOptions": {
+        "properties": {
+          "language": {
+            "$ref": "#/components/schemas/PreferenceFieldOptions"
+          },
+          "platform": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "亚马逊主图",
+                "亚马逊高级A+",
+                "TEMU",
+                "TEMU服饰类",
+                "TIKTOK",
+                "淘宝",
+                "京东",
+                "拼多多",
+                "1688"
+              ]
+            },
+            "type": "array",
+            "maxItems": 9,
+            "minItems": 9,
+            "title": "Platform"
+          },
+          "usage_scene": {
+            "$ref": "#/components/schemas/PreferenceFieldOptions"
+          },
+          "visual_style": {
+            "$ref": "#/components/schemas/PreferenceFieldOptions"
+          },
+          "selling_points": {
+            "$ref": "#/components/schemas/PreferenceFieldOptions"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "language",
+          "platform",
+          "usage_scene",
+          "visual_style",
+          "selling_points"
+        ],
+        "title": "RecommendationPublicOptions"
+      },
+      "RecommendationResponse": {
+        "properties": {
+          "recommendation_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Recommendation Id"
+          },
+          "reference_set_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Reference Set Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "analyzing",
+              "ready",
+              "failed",
+              "expired"
+            ],
+            "title": "Status"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Revision"
+          },
+          "options": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecommendationPublicOptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "image_types": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "品牌导购主视觉",
+                "核心卖点信息图",
+                "生活方式海报",
+                "多场景展示图",
+                "场景化卖点图",
+                "使用体验图",
+                "SKU展示图",
+                "细节展示图"
+              ]
+            },
+            "type": "array",
+            "maxItems": 8,
+            "minItems": 8,
+            "title": "Image Types"
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid Until"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecommendationPublicError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "recommendation_id",
+          "reference_set_id",
+          "status",
+          "revision",
+          "image_types"
+        ],
+        "title": "RecommendationResponse"
+      },
+      "ReferenceAuxiliaryImageResponse": {
+        "properties": {
+          "image_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Image Id"
+          },
+          "slot": {
+            "type": "string",
+            "enum": [
+              "AUX01",
+              "AUX02",
+              "AUX03"
+            ],
+            "title": "Slot"
+          },
+          "mime_type": {
+            "type": "string",
+            "enum": [
+              "image/jpeg",
+              "image/png",
+              "image/webp"
+            ],
+            "title": "Mime Type"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "maximum": 10485760.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Size Bytes"
+          },
+          "width": {
+            "type": "integer",
+            "maximum": 25000000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Width"
+          },
+          "height": {
+            "type": "integer",
+            "maximum": 25000000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Height"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "image_id",
+          "slot",
+          "mime_type",
+          "size_bytes",
+          "width",
+          "height"
+        ],
+        "title": "ReferenceAuxiliaryImageResponse"
+      },
+      "ReferencePrimaryImageResponse": {
+        "properties": {
+          "image_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Image Id"
+          },
+          "slot": {
+            "type": "string",
+            "const": "PRIMARY",
+            "title": "Slot"
+          },
+          "mime_type": {
+            "type": "string",
+            "enum": [
+              "image/jpeg",
+              "image/png",
+              "image/webp"
+            ],
+            "title": "Mime Type"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "maximum": 10485760.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Size Bytes"
+          },
+          "width": {
+            "type": "integer",
+            "maximum": 25000000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Width"
+          },
+          "height": {
+            "type": "integer",
+            "maximum": 25000000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Height"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "image_id",
+          "slot",
+          "mime_type",
+          "size_bytes",
+          "width",
+          "height"
+        ],
+        "title": "ReferencePrimaryImageResponse"
+      },
+      "ReferenceSetResponse": {
+        "properties": {
+          "reference_set_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Reference Set Id"
+          },
+          "product_category": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Product Category"
+          },
+          "status": {
+            "type": "string",
+            "const": "ready",
+            "title": "Status"
+          },
+          "primary_image": {
+            "$ref": "#/components/schemas/ReferencePrimaryImageResponse"
+          },
+          "auxiliary_images": {
+            "items": {
+              "$ref": "#/components/schemas/ReferenceAuxiliaryImageResponse"
+            },
+            "type": "array",
+            "maxItems": 3,
+            "title": "Auxiliary Images"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "reference_set_id",
+          "product_category",
+          "status",
+          "primary_image",
+          "auxiliary_images"
+        ],
+        "title": "ReferenceSetResponse"
+      },
+      "TaskAccepted": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "const": 2,
+            "title": "Schema Version",
+            "default": 2
+          },
+          "task_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Task Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "prompting",
+              "needs_input",
+              "generating",
+              "reconciling",
+              "succeeded",
+              "partially_succeeded",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "planned_count": {
+            "type": "integer",
+            "maximum": 8.0,
+            "minimum": 1.0,
+            "title": "Planned Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "task_id",
+          "status",
+          "planned_count"
+        ],
+        "title": "TaskAccepted"
+      },
+      "TaskCounts": {
+        "properties": {
+          "planned": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Planned"
+          },
+          "succeeded": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Succeeded"
+          },
+          "failed": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Failed"
+          },
+          "pending": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Pending"
+          },
+          "unresolved": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Unresolved"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "planned",
+          "succeeded",
+          "failed",
+          "pending",
+          "unresolved"
+        ],
+        "title": "TaskCounts"
+      },
+      "TaskCreateRequest": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "const": 2,
+            "title": "Schema Version"
+          },
+          "reference_set_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Reference Set Id"
+          },
+          "recommendation_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Recommendation Id"
+          },
+          "recommendation_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Recommendation Revision"
+          },
+          "preferences": {
+            "$ref": "#/components/schemas/TaskPreferences"
+          },
+          "image_types": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "品牌导购主视觉",
+                "核心卖点信息图",
+                "生活方式海报",
+                "多场景展示图",
+                "场景化卖点图",
+                "使用体验图",
+                "SKU展示图",
+                "细节展示图"
+              ]
+            },
+            "type": "array",
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Image Types"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "schema_version",
+          "reference_set_id",
+          "recommendation_id",
+          "recommendation_revision",
+          "preferences",
+          "image_types"
+        ],
+        "title": "TaskCreateRequest"
+      },
+      "TaskHistoryEntry": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "const": 2,
+            "title": "Schema Version",
+            "default": 2
+          },
+          "task_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Task Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "prompting",
+              "needs_input",
+              "generating",
+              "reconciling",
+              "succeeded",
+              "partially_succeeded",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/TaskCounts"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TaskItemResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "task_id",
+          "status",
+          "created_at",
+          "counts",
+          "items"
+        ],
+        "title": "TaskHistoryEntry"
+      },
+      "TaskHistoryPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TaskHistoryEntry"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 256
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "TaskHistoryPage"
+      },
+      "TaskItemPublicError": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "IMAGE_GENERATION_FAILED",
+              "V34_PRE_GENERATION_FAILED",
+              "V34_WORKFLOW_ENDED_WITHOUT_GENERATION",
+              "GENERATION_PERMIT_EXPIRED_BEFORE_ACCEPTANCE"
+            ],
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "enum": [
+              "本张图片生成失败，可单独重试。",
+              "商品身份核对未通过，未发起生图。",
+              "流程已结束，但未取得生图许可，本次未发起生图。",
+              "生图许可已过期，本次未发起生图。"
+            ],
+            "title": "Message"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "TaskItemPublicError"
+      },
+      "TaskItemResponse": {
+        "properties": {
+          "task_item_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Task Item Id"
+          },
+          "position": {
+            "type": "integer",
+            "maximum": 8.0,
+            "minimum": 1.0,
+            "title": "Position"
+          },
+          "image_type": {
+            "type": "string",
+            "enum": [
+              "品牌导购主视觉",
+              "核心卖点信息图",
+              "生活方式海报",
+              "多场景展示图",
+              "场景化卖点图",
+              "使用体验图",
+              "SKU展示图",
+              "细节展示图"
+            ],
+            "title": "Image Type"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "saving",
+              "reconciling",
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "image_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Id"
+          },
+          "preview_ready": {
+            "type": "boolean",
+            "title": "Preview Ready"
+          },
+          "width": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Width"
+          },
+          "height": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskItemPublicError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "task_item_id",
+          "position",
+          "image_type",
+          "status",
+          "preview_ready"
+        ],
+        "title": "TaskItemResponse"
+      },
+      "TaskPreferences": {
+        "properties": {
+          "language": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PreferenceMode"
+              },
+              {
+                "$ref": "#/components/schemas/CustomPreference"
+              }
+            ],
+            "title": "Language",
+            "discriminator": {
+              "propertyName": "mode",
+              "mapping": {
+                "A": "#/components/schemas/PreferenceMode",
+                "B": "#/components/schemas/PreferenceMode",
+                "C": "#/components/schemas/PreferenceMode",
+                "D": "#/components/schemas/PreferenceMode",
+                "custom": "#/components/schemas/CustomPreference"
+              }
+            }
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "亚马逊主图",
+              "亚马逊高级A+",
+              "TEMU",
+              "TEMU服饰类",
+              "TIKTOK",
+              "淘宝",
+              "京东",
+              "拼多多",
+              "1688"
+            ],
+            "title": "Platform"
+          },
+          "usage_scene": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PreferenceMode"
+              },
+              {
+                "$ref": "#/components/schemas/CustomPreference"
+              }
+            ],
+            "title": "Usage Scene",
+            "discriminator": {
+              "propertyName": "mode",
+              "mapping": {
+                "A": "#/components/schemas/PreferenceMode",
+                "B": "#/components/schemas/PreferenceMode",
+                "C": "#/components/schemas/PreferenceMode",
+                "D": "#/components/schemas/PreferenceMode",
+                "custom": "#/components/schemas/CustomPreference"
+              }
+            }
+          },
+          "visual_style": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PreferenceMode"
+              },
+              {
+                "$ref": "#/components/schemas/CustomPreference"
+              }
+            ],
+            "title": "Visual Style",
+            "discriminator": {
+              "propertyName": "mode",
+              "mapping": {
+                "A": "#/components/schemas/PreferenceMode",
+                "B": "#/components/schemas/PreferenceMode",
+                "C": "#/components/schemas/PreferenceMode",
+                "D": "#/components/schemas/PreferenceMode",
+                "custom": "#/components/schemas/CustomPreference"
+              }
+            }
+          },
+          "selling_points": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PreferenceMode"
+              },
+              {
+                "$ref": "#/components/schemas/CustomPreference"
+              }
+            ],
+            "title": "Selling Points",
+            "discriminator": {
+              "propertyName": "mode",
+              "mapping": {
+                "A": "#/components/schemas/PreferenceMode",
+                "B": "#/components/schemas/PreferenceMode",
+                "C": "#/components/schemas/PreferenceMode",
+                "D": "#/components/schemas/PreferenceMode",
+                "custom": "#/components/schemas/CustomPreference"
+              }
+            }
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "language",
+          "platform",
+          "usage_scene",
+          "visual_style",
+          "selling_points"
+        ],
+        "title": "TaskPreferences"
+      },
+      "TaskResponse": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "const": 2,
+            "title": "Schema Version",
+            "default": 2
+          },
+          "task_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Task Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "prompting",
+              "needs_input",
+              "generating",
+              "reconciling",
+              "succeeded",
+              "partially_succeeded",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/TaskCounts"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TaskItemResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "task_id",
+          "status",
+          "counts",
+          "items"
+        ],
+        "title": "TaskResponse"
+      },
+      "TaskRetryAccepted": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "const": 1,
+            "title": "Schema Version",
+            "default": 1
+          },
+          "task_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Task Id"
+          },
+          "attempts": {
+            "items": {
+              "$ref": "#/components/schemas/TaskRetryAttempt"
+            },
+            "type": "array",
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Attempts"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "task_id",
+          "attempts"
+        ],
+        "title": "TaskRetryAccepted"
+      },
+      "TaskRetryAttempt": {
+        "properties": {
+          "task_item_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Task Item Id"
+          },
+          "attempt_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Attempt Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "task_item_id",
+          "attempt_id"
+        ],
+        "title": "TaskRetryAttempt"
+      },
+      "TaskRetryRequest": {
+        "properties": {
+          "failed_item_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Failed Item Ids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "failed_item_ids"
+        ],
+        "title": "TaskRetryRequest"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

@@ -1,0 +1,25 @@
+services:
+  image-generation:
+    image: image-generation@sha256:f989e929edd15cbc410643a47aa0570251f78bd7f306a89d494a10284e6e9371
+    build:
+      context: ./image-generation
+      args:
+        PYTHON_IMAGE: ${PYTHON_IMAGE:-public.ecr.aws/docker/library/python:3.12-slim}
+    restart: unless-stopped
+    env_file:
+    - ./image-generation/.env
+    environment:
+      IMAGE_SERVICE_DATA_DIR: /data
+      IMAGE_SERVICE_PUBLIC_URL: ${IMAGE_SERVICE_PUBLIC_URL:-http://localhost:8091}
+      IMAGE_SERVICE_ALLOWED_REFERENCE_ORIGINS: ${IMAGE_SERVICE_ALLOWED_REFERENCE_ORIGINS:-http://nginx}
+    ports:
+    - 127.0.0.1:8091:8091
+    volumes:
+    - image-generation-data:/data
+    networks:
+      default:
+        aliases:
+        - image-generation
+    platform: linux/amd64
+volumes:
+  image-generation-data: null

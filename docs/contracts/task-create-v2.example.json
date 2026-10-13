@@ -1,0 +1,14 @@
+{
+  "schema_version": 2,
+  "reference_set_id": "550e8400-e29b-41d4-a716-446655440000",
+  "recommendation_id": "c56a4180-65aa-42ec-a945-5fd21dec0538",
+  "recommendation_revision": 1,
+  "preferences": {
+    "language": {"mode": "A"},
+    "platform": "TEMU",
+    "usage_scene": {"mode": "B"},
+    "visual_style": {"mode": "D"},
+    "selling_points": {"mode": "custom", "text": "突出原图可见的结构和细节"}
+  },
+  "image_types": ["品牌导购主视觉", "核心卖点信息图", "细节展示图"]
+}

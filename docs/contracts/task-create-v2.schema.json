@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "创建多图生图任务 v2",
+  "description": "业务 API 的任务创建合同，不是 Dify Chatflow 的原始请求体。用户归属、revision、推荐选项及图片引用由服务层另外校验。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "reference_set_id", "recommendation_id", "recommendation_revision", "preferences", "image_types"],
+  "properties": {
+    "schema_version": {"const": 2},
+    "reference_set_id": {"type": "string", "format": "uuid"},
+    "recommendation_id": {"type": "string", "format": "uuid"},
+    "recommendation_revision": {"type": "integer", "minimum": 1},
+    "preferences": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["language", "platform", "usage_scene", "visual_style", "selling_points"],
+      "properties": {
+        "language": {"$ref": "#/$defs/preference"},
+        "platform": {"$ref": "#/$defs/platform"},
+        "usage_scene": {"$ref": "#/$defs/preference"},
+        "visual_style": {"$ref": "#/$defs/preference"},
+        "selling_points": {"$ref": "#/$defs/preference"}
+      }
+    },
+    "image_types": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/image_type"}
+    }
+  },
+  "$defs": {
+    "preference": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": {"mode": {"enum": ["A", "B", "C", "D"]}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "text"],
+          "properties": {
+            "mode": {"const": "custom"},
+            "text": {"type": "string", "minLength": 1, "maxLength": 3500, "pattern": "\\S"}
+          }
+        }
+      ]
+    },
+    "platform": {
+      "type": "string",
+      "enum": ["亚马逊主图", "亚马逊高级A+", "TEMU", "TEMU服饰类", "TIKTOK", "淘宝", "京东", "拼多多", "1688"]
+    },
+    "image_type": {
+      "type": "string",
+      "enum": ["品牌导购主视觉", "核心卖点信息图", "生活方式海报", "多场景展示图", "场景化卖点图", "使用体验图", "SKU展示图", "细节展示图"]
+    }
+  }
+}

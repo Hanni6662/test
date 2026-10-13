@@ -1,0 +1,128 @@
+{
+  "image-generation:local-real-20261012": {
+    "tag": "image-generation:local-real-20261012",
+    "id": "sha256:f989e929edd15cbc410643a47aa0570251f78bd7f306a89d494a10284e6e9371",
+    "repo_digests": [
+      "image-generation@sha256:f989e929edd15cbc410643a47aa0570251f78bd7f306a89d494a10284e6e9371"
+    ],
+    "os": "linux",
+    "architecture": "amd64"
+  },
+  "langgenius/dify-api:1.17.1": {
+    "tag": "langgenius/dify-api:1.17.1",
+    "id": "sha256:ceede5b903afaa20348f7ad80ebf847379dc56d886a99b9ec6a08913dacd7732",
+    "repo_digests": [
+      "langgenius/dify-api@sha256:ceede5b903afaa20348f7ad80ebf847379dc56d886a99b9ec6a08913dacd7732"
+    ],
+    "os": "linux",
+    "architecture": "amd64"
+  },
+  "ubuntu/squid:latest": {
+    "tag": "ubuntu/squid:latest",
+    "id": "sha256:6a097f68bae708cedbabd6188d68c7e2e7a38cedd05a176e1cc0ba29e3bbe029",
+    "repo_digests": [
+      "ubuntu/squid@sha256:6a097f68bae708cedbabd6188d68c7e2e7a38cedd05a176e1cc0ba29e3bbe029"
+    ],
+    "os": "linux",
+    "architecture": "amd64"
+  },
+  "nginx:latest": {
+    "tag": "nginx:latest",
+    "id": "sha256:abe47724e466aeab9a345d8e46a221c2fa8953c7848bb4a3bd9976a7199f8cf2",
+    "repo_digests": [
+      "nginx@sha256:abe47724e466aeab9a345d8e46a221c2fa8953c7848bb4a3bd9976a7199f8cf2"
+    ],
+    "os": "linux",
+    "architecture": "amd64"
+  },
+  "langgenius/dify-agent-backend:1.17.1": {
+    "tag": "langgenius/dify-agent-backend:1.17.1",
+    "id": "sha256:a30c039bbead65d7fd8baf8c53fc867373f515c5721e46070ce03ed04c5f1e32",
+    "repo_digests": [
+      "langgenius/dify-agent-backend@sha256:a30c039bbead65d7fd8baf8c53fc867373f515c5721e46070ce03ed04c5f1e32"
+    ],
+    "os": "linux",
+    "architecture": "amd64"
+  },
+  "langgenius/dify-plugin-daemon:0.6.10-local": {
+    "tag": "langgenius/dify-plugin-daemon:0.6.10-local",
+    "id": "sha256:34412a22d1e1d1a6c73727fef88cffbcdd9be7a21bf9ad3076b4bf5c1b88fd9b",
+    "repo_digests": [
+      "langgenius/dify-plugin-daemon@sha256:34412a22d1e1d1a6c73727fef88cffbcdd9be7a21bf9ad3076b4bf5c1b88fd9b"
+    ],
+    "os": "linux",
+    "architecture": "amd64"
+  },
+  "langgenius/dify-sandbox:0.2.15": {
+    "tag": "langgenius/dify-sandbox:0.2.15",
+    "id": "sha256:750e1111426ef31a9217b81c98cccfb750f17b182af3221102e420afa9f0928e",
+    "repo_digests": [
+      "langgenius/dify-sandbox@sha256:750e1111426ef31a9217b81c98cccfb750f17b182af3221102e420afa9f0928e"
+    ],
+    "os": "linux",
+    "architecture": "amd64"
+  },
+  "langgenius/dify-web:1.17.1": {
+    "tag": "langgenius/dify-web:1.17.1",
+    "id": "sha256:1bdd3a66f8fa4e5f9e7e1a9bbf099c06e5e54c120877f64fe450aaf26d3e5a16",
+    "repo_digests": [
+      "langgenius/dify-web@sha256:1bdd3a66f8fa4e5f9e7e1a9bbf099c06e5e54c120877f64fe450aaf26d3e5a16"
+    ],
+    "os": "linux",
+    "architecture": "amd64"
+  },
+  "langgenius/dify-agent-local-sandbox:1.17.1": {
+    "tag": "langgenius/dify-agent-local-sandbox:1.17.1",
+    "id": "sha256:f4d404c9dcdf80bd72f65e84c3f2bbd1f3404fd4b363db837176da8aaf771b1d",
+    "repo_digests": [
+      "langgenius/dify-agent-local-sandbox@sha256:f4d404c9dcdf80bd72f65e84c3f2bbd1f3404fd4b363db837176da8aaf771b1d"
+    ],
+    "os": "linux",
+    "architecture": "amd64"
+  },
+  "postgres:15-alpine": {
+    "tag": "postgres:15-alpine",
+    "id": "sha256:f7d23353e1b15400d22ebe31189f4d314b87a4c129cc400c8c2d8d4ca127bf81",
+    "repo_digests": [
+      "postgres@sha256:f7d23353e1b15400d22ebe31189f4d314b87a4c129cc400c8c2d8d4ca127bf81"
+    ],
+    "os": "linux",
+    "architecture": "amd64"
+  },
+  "redis:6-alpine": {
+    "tag": "redis:6-alpine",
+    "id": "sha256:b362b5dff9d14d961dc3352db4776aba6a8c53ca2661d7c74ad2c121f82cdaea",
+    "repo_digests": [
+      "redis@sha256:b362b5dff9d14d961dc3352db4776aba6a8c53ca2661d7c74ad2c121f82cdaea"
+    ],
+    "os": "linux",
+    "architecture": "amd64"
+  },
+  "busybox:latest": {
+    "tag": "busybox:latest",
+    "id": "sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e",
+    "repo_digests": [
+      "busybox@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e"
+    ],
+    "os": "linux",
+    "architecture": "amd64"
+  },
+  "cr.weaviate.io/semitechnologies/weaviate:1.39.2": {
+    "tag": "cr.weaviate.io/semitechnologies/weaviate:1.39.2",
+    "id": "sha256:5c62e5cbce4c48fc770abcee71099d9de32aad3b44d12299611f8135ee412362",
+    "repo_digests": [
+      "cr.weaviate.io/semitechnologies/weaviate@sha256:5c62e5cbce4c48fc770abcee71099d9de32aad3b44d12299611f8135ee412362"
+    ],
+    "os": "linux",
+    "architecture": "amd64"
+  },
+  "image-backend:delivery-run-closure-fix-20261013": {
+    "tag": "image-backend:delivery-run-closure-fix-20261013",
+    "id": "sha256:86a5469a4308773e6ee4423505adbb5190e10408fc65648d7e6116ca44dc27ec",
+    "repo_digests": [
+      "image-backend@sha256:86a5469a4308773e6ee4423505adbb5190e10408fc65648d7e6116ca44dc27ec"
+    ],
+    "os": "linux",
+    "architecture": "amd64"
+  }
+}

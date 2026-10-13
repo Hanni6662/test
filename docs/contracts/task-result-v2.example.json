@@ -1,0 +1,41 @@
+{
+  "schema_version": 2,
+  "task_id": "b2893a89-a2f1-4548-a4de-9ac774b8e802",
+  "status": "partially_succeeded",
+  "counts": {"planned": 3, "succeeded": 2, "failed": 1, "pending": 0, "unresolved": 0},
+  "items": [
+    {
+      "task_item_id": "ff07da8b-b9f0-4d8b-ae64-cb7644177981",
+      "position": 1,
+      "image_type": "品牌导购主视觉",
+      "status": "succeeded",
+      "image_id": "9110b9af-4f1b-4139-bf58-4b6ef43b3e01",
+      "preview_ready": true,
+      "width": 1024,
+      "height": 1024,
+      "error": null
+    },
+    {
+      "task_item_id": "ff07da8b-b9f0-4d8b-ae64-cb7644177982",
+      "position": 2,
+      "image_type": "核心卖点信息图",
+      "status": "failed",
+      "image_id": null,
+      "preview_ready": false,
+      "width": null,
+      "height": null,
+      "error": {"code": "IMAGE_GENERATION_FAILED", "message": "本张图片生成失败，可单独重试。"}
+    },
+    {
+      "task_item_id": "ff07da8b-b9f0-4d8b-ae64-cb7644177983",
+      "position": 3,
+      "image_type": "细节展示图",
+      "status": "succeeded",
+      "image_id": "9110b9af-4f1b-4139-bf58-4b6ef43b3e03",
+      "preview_ready": true,
+      "width": 1024,
+      "height": 1024,
+      "error": null
+    }
+  ]
+}

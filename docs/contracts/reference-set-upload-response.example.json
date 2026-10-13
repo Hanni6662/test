@@ -1,0 +1,23 @@
+{
+  "reference_set_id": "550e8400-e29b-41d4-a716-446655440000",
+  "product_category": "手提包",
+  "status": "ready",
+  "primary_image": {
+    "image_id": "550e8400-e29b-41d4-a716-446655440001",
+    "slot": "PRIMARY",
+    "mime_type": "image/jpeg",
+    "size_bytes": 2097152,
+    "width": 2000,
+    "height": 2000
+  },
+  "auxiliary_images": [
+    {
+      "image_id": "550e8400-e29b-41d4-a716-446655440002",
+      "slot": "AUX01",
+      "mime_type": "image/png",
+      "size_bytes": 3145728,
+      "width": 2000,
+      "height": 2000
+    }
+  ]
+}

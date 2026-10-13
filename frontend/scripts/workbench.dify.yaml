@@ -1,0 +1,33 @@
+# Delivery overlay: check the pinned Dify worker/beat processes.
+{
+  "services": {
+    "worker": {
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python",
+          "-c",
+          "import glob,pathlib\ncommands=[]\nfor p in glob.glob('/proc/[0-9]*/cmdline'):\n    try:\n        commands.append(pathlib.Path(p).read_bytes().replace(b'\\0',b' '))\n    except (FileNotFoundError, PermissionError):\n        pass\nassert any(b'celery' in c and b' worker ' in c and b'python -c' not in c for c in commands)"
+        ],
+        "interval": "10s",
+        "timeout": "5s",
+        "start_period": "30s",
+        "retries": 12
+      }
+    },
+    "worker_beat": {
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python",
+          "-c",
+          "import glob,pathlib\ncommands=[]\nfor p in glob.glob('/proc/[0-9]*/cmdline'):\n    try:\n        commands.append(pathlib.Path(p).read_bytes().replace(b'\\0',b' '))\n    except (FileNotFoundError, PermissionError):\n        pass\nassert any(b'celery' in c and b' beat ' in c and b'python -c' not in c for c in commands)"
+        ],
+        "interval": "10s",
+        "timeout": "5s",
+        "start_period": "30s",
+        "retries": 12
+      }
+    }
+  }
+}

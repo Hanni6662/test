@@ -1,24 +1,2 @@
-node_modules/
-.next/
-out/
-coverage/
-test-results/
-playwright-report/
-.turbo/
-
-.env
-.env.*
-!.env.example
-
-data/uploads/
-*.sqlite
-*.sqlite3
-*.db
-*.db-journal
-*.db-shm
-*.db-wal
-
-*.log
-*.tsbuildinfo
-.DS_Store
-Thumbs.db
+# Local AI handoff instructions; never publish.
+/AI同步操作说明.local.md
