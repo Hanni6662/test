@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env.local
+playwright-report/
+test-results/
+*.log
+.workbench-start.lock
+workbench.config.local.json
