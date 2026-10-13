@@ -1,0 +1,1 @@
+"""Queue integration worker fixtures."""
