@@ -1,0 +1,49 @@
+services:
+  migrate:
+    image: ${REAL_BACKEND_IMAGE:?Use fixed backend image}
+  api:
+    image: ${REAL_BACKEND_IMAGE:?Use fixed backend image}
+    environment: &id001
+      IMAGE_BACKEND_CHATFLOW_HANDOFF_ENABLED: 'true'
+      IMAGE_BACKEND_CHATFLOW_FLOW_VERSION: visual-v3.4-single-selection
+      IMAGE_BACKEND_CHATFLOW_DIFY_MODE: http
+      IMAGE_BACKEND_DIFY_APP_ID: ${REAL_DIFY_APP_ID:?Configure Dify}
+      IMAGE_BACKEND_DIFY_WORKFLOW_ID: ${REAL_DIFY_WORKFLOW_ID:?Publish Dify}
+      IMAGE_BACKEND_DIFY_REFERENCE_UPLOAD_ENABLED: 'true'
+      IMAGE_BACKEND_DIFY_REFERENCE_UPLOAD_API_BASE_URL: http://visual-dify:5001
+      IMAGE_BACKEND_DIFY_REFERENCE_UPLOAD_API_TOKEN: ${REAL_DIFY_APP_TOKEN:?Configure
+        Dify}
+      IMAGE_BACKEND_GENERATION_PERMIT_SECRET: ${REAL_PERMIT_SECRET:?Configure permit}
+      IMAGE_BACKEND_IMAGE_GENERATION_SERVICE_URL: http://visual-image-generation:8091
+      IMAGE_BACKEND_IMAGE_GENERATION_SERVICE_TOKEN: ${REAL_IMAGE_TOKEN:?Configure
+        service}
+      IMAGE_BACKEND_IMAGE_GENERATION_SERVICE_AUTHORITY_ID: ${REAL_IMAGE_AUTHORITY_ID:?Read
+        authority}
+    networks:
+      private: null
+      real_link:
+        aliases:
+        - visual-backend
+      ingress: null
+  worker:
+    image: ${REAL_BACKEND_IMAGE:?Use fixed backend image}
+    environment: *id001
+    networks:
+      private: null
+      real_link: null
+  scheduler:
+    image: ${REAL_BACKEND_IMAGE:?Use fixed backend image}
+    environment: *id001
+    networks:
+      private: null
+      real_link: null
+  dispatcher:
+    image: ${REAL_BACKEND_IMAGE:?Use fixed backend image}
+    environment: *id001
+    networks:
+      private: null
+      real_link: null
+networks:
+  real_link:
+    external: true
+    name: ${REAL_LINK_NETWORK:-visual-real-link}
